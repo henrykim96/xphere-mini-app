@@ -374,6 +374,7 @@
     }
     // 텔레그램 밖(그냥 브라우저)에서 테스트로 열면 user 가 없으니 가짜 값 사용
     if (!user) user = { first_name: "Henry", id: 7716704251 };
+    const INIT_DATA = tg ? (tg.initData || "") : "";  // 텔레그램 서명 (백엔드가 검증)
 
     // 받아온 정보를 화면에 표시
     document.getElementById("userName").textContent = user.first_name || "User";
@@ -534,7 +535,7 @@
                   "Authorization": "Bearer " + SUPABASE_ANON,
                   "apikey": SUPABASE_ANON,
                 },
-                body: JSON.stringify({ telegram_id: user.id, mission_id: m.id }),
+                body: JSON.stringify({ initData: INIT_DATA, telegram_id: user.id, mission_id: m.id }),
               });
               out = await resp.json();
             } catch (e) { out = { ok: false }; }
@@ -582,7 +583,7 @@
         await fetch(FUNCTION_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": "Bearer " + SUPABASE_ANON, "apikey": SUPABASE_ANON },
-          body: JSON.stringify({ telegram_id: user.id, referrer_id: refId }),  // 서버가 자기초대/중복 검증
+          body: JSON.stringify({ initData: INIT_DATA, telegram_id: user.id, referrer_id: refId }),  // 서버가 검증
         });
       } catch (e) {}
     }
