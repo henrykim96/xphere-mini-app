@@ -66,6 +66,16 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const { action, mission_id, referrer_id } = body;
 
+    // ===== 관리자 리더보드 (팀 비밀번호를 서버가 검증) =====
+    if (action === "admin_leaderboard") {
+      const pw = Deno.env.get("ADMIN_PASSWORD");
+      if (!pw || body.password !== pw) return json({ ok: false, reason: "unauthorized" }, 401);
+      const dbA = createClient(Deno.env.get("SUPABASE_URL"), Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"));
+      const { data } = await dbA.from("app_users")
+        .select("name, points, referrals, wallet, telegram_id, onboarded").order("points", { ascending: false });
+      return json({ ok: true, users: data || [] });
+    }
+
     const who = await resolveUserId(body); // ★ 서버가 신원 확인
     if (who.error) return json({ ok: false, reason: who.error }, 401);
     const telegram_id = who.id;

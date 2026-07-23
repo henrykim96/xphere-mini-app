@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Xphere Admin Dashboard</title>
+  <style>
+    /* ===== Xphere 다크 테마 (내부 대시보드) ===== */
+    :root {
+      --bg: #0a0507; --card: rgba(30,18,22,0.55); --line: rgba(225,29,42,0.18);
+      --line2: rgba(255,255,255,0.06); --text: #f5eef0; --muted: #9a8a8e; --red: #e11d2a; --red-hi: #ff3547;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: var(--text);
+      background: radial-gradient(120% 60% at 80% -5%, rgba(225,29,42,0.22), transparent 55%), linear-gradient(180deg, #0f0a0c, var(--bg));
+      background-attachment: fixed; min-height: 100vh; padding: 24px 16px 60px;
+    }
+    .wrap { max-width: 1000px; margin: 0 auto; }
+    h1 { font-size: 24px; margin: 0 0 4px; }
+    .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+
+    /* 로그인 */
+    .gate { max-width: 360px; margin: 60px auto; background: var(--card); border: 1px solid var(--line);
+      border-radius: 16px; padding: 28px; text-align: center; backdrop-filter: blur(8px); }
+    .gate h2 { margin: 0 0 6px; }
+    .gate p { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
+    .gate input { width: 100%; padding: 13px 14px; border-radius: 10px; background: rgba(255,255,255,0.05);
+      border: 1px solid var(--line2); color: var(--text); font-size: 15px; margin-bottom: 12px; }
+    .gate input:focus { outline: none; border-color: var(--red); }
+    .btn { width: 100%; padding: 13px; border: none; border-radius: 10px; cursor: pointer; font-weight: 700; font-size: 15px;
+      background: linear-gradient(90deg, var(--red), #8f0f1a); color: #fff; }
+    .err { color: var(--red-hi); font-size: 13px; margin-top: 10px; min-height: 18px; }
+
+    /* 통계 카드 */
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 22px; }
+    .stat { background: var(--card); border: 1px solid var(--line2); border-radius: 14px; padding: 16px; }
+    .stat .n { font-size: 26px; font-weight: 800; }
+    .stat .l { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+    /* 표 */
+    .tablewrap { background: var(--card); border: 1px solid var(--line2); border-radius: 14px; overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; white-space: nowrap; }
+    th, td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--line2); }
+    th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: #14100f; }
+    tr:last-child td { border-bottom: none; }
+    .rank { font-weight: 800; color: var(--red-hi); }
+    .wallet { font-family: monospace; color: var(--muted); font-size: 12px; }
+    .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 10px; flex-wrap: wrap; }
+    .toolbar button { background: rgba(255,255,255,0.06); border: 1px solid var(--line2); color: var(--text);
+      border-radius: 8px; padding: 8px 14px; cursor: pointer; font-size: 13px; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+
+    <!-- 로그인 화면 -->
+    <div class="gate" id="gate">
+      <h2>🔒 Admin Dashboard</h2>
+      <p>Enter the team password to view stats.</p>
+      <input type="password" id="pw" placeholder="Password" />
+      <button class="btn" id="loginBtn">View Dashboard</button>
+      <div class="err" id="err"></div>
+    </div>
+
+    <!-- 대시보드 -->
+    <div id="dash" class="hidden">
+      <h1>Xphere Admin Dashboard</h1>
+      <div class="sub">Internal only — points ranking &amp; user data</div>
+
+      <div class="stats" id="stats"></div>
+
+      <div class="toolbar">
+        <div style="color:var(--muted);font-size:13px" id="count"></div>
+        <button id="csvBtn">Download CSV</button>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>#</th><th>Name</th><th>Points</th><th>Referrals</th><th>Onboarded</th><th>Wallet</th><th>Telegram ID</th></tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // 백엔드 함수 주소 + 공개키 (게이트 통과용, 실제 데이터는 서버가 비번 확인 후 줌)
+    const FUNCTION_URL = "https://ltodfynoaozgcaobwcgo.supabase.co/functions/v1/dynamic-handler";
+    const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx0b2RmeW5vYW96Z2Nhb2J3Y2dvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5OTUyNDYsImV4cCI6MjA5OTU3MTI0Nn0.Fz5b50r2OIhkg7quvndelfFwjq2tvWnVtAuweHdRsBA";
+
+    let USERS = [];
+
+    async function login() {
+      const pw = document.getElementById("pw").value;
+      const err = document.getElementById("err");
+      err.textContent = "";
+      try {
+        const resp = await fetch(FUNCTION_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + SUPABASE_ANON, "apikey": SUPABASE_ANON },
+          body: JSON.stringify({ action: "admin_leaderboard", password: pw }),
+        });
+        const out = await resp.json();
+        if (!out.ok) { err.textContent = "Wrong password."; return; }
+        USERS = out.users || [];
+        showDashboard();
+      } catch (e) { err.textContent = "Network error."; }
+    }
+
+    function showDashboard() {
+      document.getElementById("gate").classList.add("hidden");
+      document.getElementById("dash").classList.remove("hidden");
+
+      // 통계
+      const total = USERS.length;
+      const withWallet = USERS.filter(function (u) { return u.wallet; }).length;
+      const totalPoints = USERS.reduce(function (s, u) { return s + (u.points || 0); }, 0);
+      const onboarded = USERS.filter(function (u) { return u.onboarded; }).length;
+      document.getElementById("stats").innerHTML =
+        stat(total, "Total Users") + stat(onboarded, "Onboarded") +
+        stat(withWallet, "Wallets Registered") + stat(totalPoints, "Total Points");
+      document.getElementById("count").textContent = total + " users (sorted by points)";
+
+      // 표
+      const rows = USERS.map(function (u, i) {
+        return "<tr><td class='rank'>" + (i + 1) + "</td><td>" + esc(u.name) + "</td><td>" + (u.points || 0) +
+          "</td><td>" + (u.referrals || 0) + "</td><td>" + (u.onboarded ? "✓" : "") +
+          "</td><td class='wallet'>" + esc(u.wallet) + "</td><td>" + u.telegram_id + "</td></tr>";
+      }).join("");
+      document.getElementById("rows").innerHTML = rows;
+    }
+
+    function stat(n, label) { return "<div class='stat'><div class='n'>" + n + "</div><div class='l'>" + label + "</div></div>"; }
+    function esc(s) { return s == null ? "" : String(s).replace(/</g, "&lt;"); }
+
+    // CSV 내보내기 (에어드랍 대상 뽑기용)
+    function downloadCsv() {
+      const head = "rank,name,points,referrals,wallet,telegram_id\n";
+      const body = USERS.map(function (u, i) {
+        return [i + 1, JSON.stringify(u.name || ""), u.points || 0, u.referrals || 0, u.wallet || "", u.telegram_id].join(",");
+      }).join("\n");
+      const blob = new Blob([head + body], { type: "text/csv" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "xphere_leaderboard.csv";
+      a.click();
+    }
+
+    document.getElementById("loginBtn").addEventListener("click", login);
+    document.getElementById("pw").addEventListener("keydown", function (e) { if (e.key === "Enter") login(); });
+    document.getElementById("csvBtn").addEventListener("click", downloadCsv);
+  </script>
+</body>
+</html>
