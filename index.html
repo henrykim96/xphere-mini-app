@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Xphere Airdrop</title>
+
+  <!-- ▼ 텔레그램 미니앱 핵심 스크립트 (이 한 줄로 미니앱이 됩니다) -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    /* ===== Xphere 색상 팔레트 ===== */
+    :root {
+      --bg:      #0a0507;    /* 거의 검정 (살짝 붉은 기) */
+      --bg-2:    #0f0a0c;
+      --card:    #16101300; /* 유리질 카드 (반투명) */
+      --card-bg: rgba(30, 18, 22, 0.55);
+      --line:    rgba(225, 29, 42, 0.18);
+      --line-2:  rgba(255, 255, 255, 0.06);
+      --text:    #f5eef0;
+      --muted:   #9a8a8e;
+      --red:     #e11d2a;    /* Xphere 크림슨 */
+      --red-hi:  #ff3547;    /* 밝은 레드 */
+      --red-dk:  #8f0f1a;
+      --green:   #2ecc71;
+    }
+
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(120% 60% at 80% -5%, rgba(225,29,42,0.28), transparent 55%),
+        radial-gradient(90% 50% at 0% 0%, rgba(143,15,26,0.20), transparent 50%),
+        linear-gradient(180deg, var(--bg-2), var(--bg));
+      background-attachment: fixed;
+      min-height: 100vh;
+      max-width: 520px;
+      margin: 0 auto;
+      padding: 0 16px 48px;
+    }
+
+    /* ===== 히어로 (X 로고 글로우) ===== */
+    .hero {
+      position: relative;
+      padding: 30px 4px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .hero .brand-label {
+      font-size: 12px; letter-spacing: 3px; color: var(--red-hi);
+      font-weight: 700; text-transform: uppercase;
+    }
+    .hero h1 { margin: 6px 0 0; font-size: 30px; font-weight: 800; line-height: 1.05; }
+    .hero h1 .thin { color: var(--muted); font-weight: 600; }
+    .xmark {
+      width: 76px; height: 76px; flex: none; position: relative;
+      object-fit: contain;
+      filter: drop-shadow(0 0 22px rgba(225,29,42,0.65));
+    }
+
+    /* ===== 프로필 바 ===== */
+    .profile {
+      margin-top: 18px;
+      background: var(--card-bg);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 16px 18px;
+      display: flex; align-items: center; gap: 14px;
+      backdrop-filter: blur(8px);
+    }
+    .avatar {
+      width: 48px; height: 48px; border-radius: 14px; flex: none;
+      background: linear-gradient(135deg, var(--red-hi), var(--red-dk));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; font-weight: 800; color: #fff;
+      box-shadow: 0 0 18px rgba(225,29,42,0.45);
+    }
+    .profile .who { flex: 1; }
+    .profile .who b { display: block; font-size: 16px; }
+    .profile .who small { color: var(--muted); font-size: 12px; }
+    .pts { text-align: right; }
+    .pts .n { font-size: 24px; font-weight: 800; color: #fff; }
+    .pts .u { font-size: 13px; color: var(--red-hi); font-weight: 700; }
+
+    .subnav { display: flex; gap: 18px; margin: 14px 2px 0; }
+    .subnav a { color: var(--muted); font-size: 13px; font-weight: 600; text-decoration: none; }
+    .subnav a:first-child { color: var(--red-hi); }
+
+    /* ===== 초대 링크 ===== */
+    .ref {
+      margin-top: 14px; background: rgba(255,255,255,0.03);
+      border: 1px solid var(--line-2); border-radius: 12px;
+      padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    }
+    .ref code { color: var(--muted); font-size: 12px; word-break: break-all; }
+    .ref button {
+      background: rgba(225,29,42,0.12); border: 1px solid var(--line); color: var(--red-hi);
+      border-radius: 9px; padding: 7px 12px; cursor: pointer; font-size: 13px; font-weight: 600; white-space: nowrap;
+    }
+
+    /* ===== 등록 배너 ===== */
+    .reg {
+      margin-top: 16px; border-radius: 16px; padding: 18px;
+      background: linear-gradient(135deg, rgba(225,29,42,0.14), rgba(225,29,42,0.03));
+      border: 1px solid var(--line);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .reg .label { color: var(--red-hi); font-size: 11px; font-weight: 800; letter-spacing: 1px; }
+    .reg .title { font-size: 18px; font-weight: 700; margin: 7px 0 4px; }
+    .reg .deadline { color: var(--muted); font-size: 12px; }
+    .badge { background: rgba(225,29,42,0.18); color: var(--red-hi); border-radius: 20px;
+      padding: 6px 12px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+    .badge::before { content: "● "; }
+
+    /* ===== 탭 ===== */
+    .tabs { display: flex; gap: 10px; margin-top: 24px; }
+    .tab {
+      flex: 1; text-align: center; padding: 11px; border-radius: 12px; cursor: pointer;
+      color: var(--muted); font-weight: 700; background: rgba(255,255,255,0.03);
+      border: 1px solid var(--line-2); transition: .15s;
+    }
+    .tab.active {
+      color: #fff; background: linear-gradient(135deg, var(--red), var(--red-dk));
+      border-color: transparent; box-shadow: 0 6px 20px rgba(225,29,42,0.35);
+    }
+    .tab .count { opacity: .8; font-size: 12px; margin-left: 4px; }
+    .reset-note { color: var(--muted); font-size: 12px; margin: 16px 4px 12px; display: flex; align-items: center; gap: 6px; }
+    .reset-note::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--red-hi); box-shadow: 0 0 8px var(--red-hi); }
+
+    /* ===== 출석체크 ===== */
+    .checkin { background: var(--card-bg); border: 1px solid var(--line-2); border-radius: 16px; padding: 18px; backdrop-filter: blur(8px); }
+    .checkin h3 { margin: 0 0 16px; font-size: 17px; }
+    .dots { display: flex; gap: 8px; justify-content: space-between; }
+    .dot {
+      width: 36px; height: 36px; border-radius: 12px; border: 1px solid var(--line-2);
+      display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 14px;
+    }
+    .dot.done {
+      border-color: transparent; color: #fff;
+      background: linear-gradient(135deg, var(--red), var(--red-dk));
+      box-shadow: 0 0 12px rgba(225,29,42,0.4);
+    }
+    .checkin .btn {
+      margin-top: 16px; width: 100%; padding: 14px; border-radius: 12px; border: 1px solid var(--line);
+      background: rgba(225,29,42,0.08); color: var(--muted); font-size: 15px; font-weight: 700; cursor: default;
+    }
+    .checkin .btn.ready { background: linear-gradient(90deg, var(--red), var(--red-dk)); color: #fff; border-color: transparent; cursor: pointer; box-shadow: 0 6px 20px rgba(225,29,42,0.35); }
+
+    /* ===== 미션 ===== */
+    .section-title { margin: 24px 4px 14px; font-size: 19px; font-weight: 800; }
+    .section-title span { color: var(--red-hi); }
+    .mission {
+      background: var(--card-bg); border: 1px solid var(--line-2); border-radius: 14px; padding: 14px;
+      display: flex; align-items: center; gap: 12px; margin-bottom: 11px; backdrop-filter: blur(8px);
+      transition: .15s;
+    }
+    .mission:active { transform: scale(0.99); }
+    .mission .icon {
+      width: 42px; height: 42px; border-radius: 12px; flex: none;
+      background: linear-gradient(135deg, rgba(225,29,42,0.25), rgba(225,29,42,0.05));
+      border: 1px solid var(--line);
+      display: flex; align-items: center; justify-content: center; color: var(--red-hi); font-weight: 800; font-size: 18px;
+    }
+    .mission .info { flex: 1; }
+    .mission .info b { display: block; font-size: 15px; }
+    .mission .info small { color: var(--muted); font-size: 12px; }
+    .verify {
+      background: linear-gradient(135deg, var(--red), var(--red-dk)); border: none; color: #fff; font-weight: 700;
+      border-radius: 10px; padding: 10px 18px; cursor: pointer; box-shadow: 0 4px 14px rgba(225,29,42,0.35);
+    }
+    .verify.done { background: var(--green); box-shadow: none; }
+    .mission.completed { opacity: .55; }
+    .empty { color: var(--muted); margin: 8px 4px; font-size: 14px; }
+
+    /* ===== 등록 폼 모달 ===== */
+    .badge.open { background: rgba(46,204,113,0.18); color: var(--green); }
+    .modal-overlay {
+      display: none; position: fixed; inset: 0; z-index: 50;
+      background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+      align-items: center; justify-content: center; padding: 16px;
+    }
+    .modal {
+      width: 100%; max-width: 480px; max-height: 88vh; overflow-y: auto;
+      background: #14100f; border: 1px solid var(--line); border-radius: 18px; padding: 20px;
+    }
+    .modal-head { display: flex; justify-content: space-between; align-items: center; }
+    .modal-head h2 { margin: 0; font-size: 20px; }
+    .modal-close { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; }
+    .modal-sub { color: var(--muted); font-size: 13px; margin: 8px 0 18px; line-height: 1.5; }
+    .field { margin-bottom: 14px; }
+    .field-label { font-size: 13px; color: var(--muted); margin-bottom: 6px; display: block; }
+    .modal input[type="text"] {
+      width: 100%; padding: 12px 14px; border-radius: 10px;
+      background: rgba(255,255,255,0.04); border: 1px solid var(--line-2); color: var(--text); font-size: 14px;
+    }
+    .modal input[type="text"]:focus { outline: none; border-color: var(--red); }
+    .agree-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; color: var(--text); font-size: 14px; }
+    .agree-row input { width: 18px; height: 18px; accent-color: var(--red); }
+    .submit-btn {
+      width: 100%; padding: 14px; border: none; border-radius: 12px; cursor: pointer;
+      background: linear-gradient(90deg, var(--red), var(--red-dk)); color: #fff; font-size: 15px; font-weight: 700;
+      box-shadow: 0 6px 20px rgba(225,29,42,0.35);
+    }
+
+    /* ===== 온보딩 (신규 유저 최초 1회) ===== */
+    .ob-overlay {
+      display: none; position: fixed; inset: 0; z-index: 60;
+      background: radial-gradient(120% 55% at 80% 0%, rgba(225,29,42,0.28), transparent 55%), linear-gradient(180deg, var(--bg-2), var(--bg));
+      flex-direction: column; padding: 28px 22px;
+    }
+    .ob-top { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+    .ob-logo { width: 100px; height: 100px; border-radius: 24px; border: 1px solid var(--line);
+      display: flex; align-items: center; justify-content: center; margin-bottom: 30px;
+      filter: drop-shadow(0 0 24px rgba(225,29,42,0.5)); }
+    .ob-logo img { width: 62px; height: 62px; object-fit: contain; }
+    .ob-title { font-size: 27px; font-weight: 800; margin: 0 0 10px; }
+    .ob-sub { color: var(--muted); font-size: 15px; margin: 0 0 26px; max-width: 340px; line-height: 1.5; }
+    .ob-body { width: 100%; max-width: 400px; min-height: 30px; }
+    .ob-body input[type="text"] { width: 100%; padding: 15px 16px; border-radius: 12px;
+      background: rgba(255,255,255,0.05); border: 1px solid var(--line-2); color: var(--text); font-size: 15px; text-align: center; }
+    .ob-body input[type="text"]:focus { outline: none; border-color: var(--red); }
+    .ob-agree { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 15px; color: var(--text); }
+    .ob-agree input { width: 20px; height: 20px; accent-color: var(--red); }
+    .ob-open { display: block; width: 100%; max-width: 400px; margin: 0 auto 12px; padding: 13px;
+      border-radius: 12px; background: rgba(255,255,255,0.06); border: 1px solid var(--line-2);
+      color: var(--text); font-weight: 600; font-size: 15px; cursor: pointer; }
+    .ob-dots { display: flex; gap: 8px; justify-content: center; margin: 22px 0; }
+    .ob-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-2); transition: .2s; }
+    .ob-dot.active { background: var(--red); width: 22px; border-radius: 4px; }
+    .ob-next { width: 100%; max-width: 400px; margin: 0 auto; padding: 16px; border: none; border-radius: 14px;
+      background: linear-gradient(90deg, var(--red), var(--red-dk)); color: #fff; font-size: 16px; font-weight: 700;
+      cursor: pointer; box-shadow: 0 6px 20px rgba(225,29,42,0.35); }
+  </style>
+</head>
+<body>
+
+  <!-- ===== 히어로 (X 로고) ===== -->
+  <div class="hero">
+    <div>
+      <div class="brand-label">Xphere Airdrop</div>
+      <h1>Earn <span class="thin">&</span><br>Claim Points</h1>
+    </div>
+    <!-- Xphere 공식 로고 파일 -->
+    <img class="xmark" src="data:image/png;base64,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" alt="Xphere" />
+  </div>
+
+  <!-- ===== 프로필 ===== -->
+  <div class="profile">
+    <div class="avatar" id="avatar">?</div>
+    <div class="who">
+      <b id="userName">User</b>
+      <small>Xphere Community Member</small>
+    </div>
+    <div class="pts"><div class="n" id="userPoints">0</div><div class="u">Point</div></div>
+  </div>
+  <div class="subnav"><a>Earnings</a><a>Submissions</a><a id="navRef">Referrals</a></div>
+
+  <!-- ===== 초대 링크 ===== -->
+  <div class="ref">
+    <code id="refLink">https://t.me/Xphere_Bot?start=ref_0000000000</code>
+    <button onclick="copyRef()">Copy</button>
+  </div>
+
+  <!-- ===== 등록 배너 ===== -->
+  <div class="reg" id="regBanner" style="cursor:pointer">
+    <div>
+      <div class="label">AIRDROP REGISTRATION</div>
+      <div class="title">Register now</div>
+      <div class="deadline">Register wallet &amp; socials →</div>
+    </div>
+    <div class="badge open">Open</div>
+  </div>
+
+  <!-- 등록 폼 모달 (배너 누르면 열림) -->
+  <div class="modal-overlay" id="regModal">
+    <div class="modal">
+      <div class="modal-head">
+        <h2>Airdrop Registration</h2>
+        <button class="modal-close" id="regClose">✕</button>
+      </div>
+      <p class="modal-sub">Register your wallet and socials. Airdrop tokens will be sent to the wallet you register here.</p>
+
+      <label class="agree-row">
+        <input type="checkbox" id="regAgree" />
+        I understand and agree.
+      </label>
+
+      <div class="field">
+        <div class="field-label">Discord handle (ex @Xphere_user)</div>
+        <input type="text" id="regDiscord" placeholder="yourname" />
+      </div>
+      <div class="field">
+        <div class="field-label">EVM wallet address</div>
+        <input type="text" id="regWallet" placeholder="0x..." />
+      </div>
+      <div class="field">
+        <div class="field-label">Your X (Twitter) handle</div>
+        <input type="text" id="regX" placeholder="username" />
+      </div>
+
+      <button class="submit-btn" id="regSubmit">Submit</button>
+    </div>
+  </div>
+
+  <!-- 온보딩 (신규 유저 최초 1회 설정) -->
+  <div class="ob-overlay" id="obOverlay">
+    <div class="ob-top">
+      <div class="ob-logo"><img id="obLogo" alt="Xphere" /></div>
+      <h1 class="ob-title" id="obTitle"></h1>
+      <p class="ob-sub" id="obSub"></p>
+      <div class="ob-body" id="obBody"></div>
+    </div>
+    <div class="ob-dots" id="obDots"></div>
+    <button class="ob-next" id="obNext">Next</button>
+  </div>
+
+  <!-- ===== 탭 ===== -->
+  <div class="tabs">
+    <div class="tab active" data-cat="daily">Daily</div>
+    <div class="tab" data-cat="general">General</div>
+  </div>
+  <div class="reset-note">Daily missions reset by timezone: Asia/Seoul</div>
+
+  <!-- ===== 출석체크 ===== -->
+  <div class="checkin">
+    <h3>Daily Check-in</h3>
+    <div class="dots" id="dots"></div>
+    <button class="btn" id="checkinBtn">Check in</button>
+  </div>
+
+  <!-- ===== 미션 ===== -->
+  <div class="section-title">Daily Mission <span id="missionCount">3</span></div>
+  <div id="missionList"></div>
+
+  <div class="section-title">Completed Mission <span id="doneCount">0</span></div>
+  <div id="completedList"></div>
+  <div class="empty" id="doneEmpty">No completed missions yet.</div>
+
+  <script>
+    /* ============================================================
+       Xphere 에어드랍 미니앱 — 화면 동작 스크립트
+       ------------------------------------------------------------
+       [구조 한눈에]
+         1) 텔레그램에서 내 정보(이름/ID) 받기
+         2) Supabase(DB) 연결 — 점수·출석·미션완료 저장소
+         3) 출석체크 — 매일 +점수, 연속일수(streak)
+         4) 미션 — DB에서 불러옴 (Daily=매일 리셋 / General=영구 1회)
+         5) 탭 전환 · 초대링크 복사
+         6) init() — 앱이 열리면 여기서부터 시작
+
+       [DB 테이블 3개]
+         app_users   : 유저별 점수 / 연속출석 / 마지막출석일
+         missions    : 미션 목록 (Supabase에서 직접 추가·수정)
+         completions : 누가·어떤미션·언제 완료했는지 (중복방지 + 리셋 판단)
+
+       ※ 코드를 고치면 → Netlify에 index.html 다시 올려야 반영됨
+       ============================================================ */
+
+    // ===== 1) 텔레그램에서 내 정보 받기 =====
+    // telegram-web-app.js 가 넣어주는 객체. 텔레그램 안에서 열렸을 때만 존재.
+    const tg = window.Telegram ? window.Telegram.WebApp : null;
+    let user = null;
+    if (tg) {
+      tg.ready();      // "미니앱 준비 끝" 신호
+      tg.expand();     // 화면 꽉 차게 펼치기
+      // 텔레그램 상단/배경색을 Xphere 다크톤으로
+      try { tg.setHeaderColor && tg.setHeaderColor("#0a0507"); tg.setBackgroundColor && tg.setBackgroundColor("#0a0507"); } catch (e) {}
+      user = tg.initDataUnsafe && tg.initDataUnsafe.user;   // 로그인한 유저 정보(이름/id)
+    }
+    // 텔레그램 밖(그냥 브라우저)에서 테스트로 열면 user 가 없으니 가짜 값 사용
+    if (!user) user = { first_name: "Henry", id: 7716704251 };
+
+    // 받아온 정보를 화면에 표시
+    document.getElementById("userName").textContent = user.first_name || "User";
+    document.getElementById("avatar").textContent = (user.first_name || "?").charAt(0).toUpperCase();
+    document.getElementById("refLink").textContent = "https://t.me/Xphere_CommunityBot?startapp=ref_" + user.id; // 내 초대링크
+
+    // ===== 2) DB 연결 (Supabase) =====
+    const SUPABASE_URL  = "https://ltodfynoaozgcaobwcgo.supabase.co";
+    // anon(공개용) 키 — 화면에 넣어도 되는 키. 실제 접근 권한은 DB의 RLS 규칙이 통제함.
+    const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx0b2RmeW5vYW96Z2Nhb2J3Y2dvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5OTUyNDYsImV4cCI6MjA5OTU3MTI0Nn0.Fz5b50r2OIhkg7quvndelfFwjq2tvWnVtAuweHdRsBA";
+    const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON); // 이 db 로 DB에 읽고 씀
+    // 백엔드 함수 주소 (미션 완료 검증·점수지급을 서버가 처리)
+    const FUNCTION_URL = SUPABASE_URL + "/functions/v1/dynamic-handler";
+    const pointsEl = document.getElementById("userPoints");               // 화면의 점수 숫자 요소
+
+    // 화면 곳곳에서 쓰는 값들
+    const doneToday = new Set();             // 이미 완료한 미션 id 모음 (오늘분 + 영구분)
+    let myStreak = 0, myLastCheckin = null;
+    let myReg = { discord: "", wallet: "", x_handle: "", agreed: false }; // 등록정보
+    let myOnboarded = false; // 온보딩 완료 여부
+    let myReferredBy = null, myReferrals = 0; // 추천 정보  // 연속출석 일수 / 마지막 출석 날짜
+
+    // 오늘 날짜를 서울 기준 "YYYY-MM-DD" 로. (미션 리셋·출석의 '오늘' 기준점)
+    function seoulToday() { return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" }); }
+
+    // 앱 열릴 때: 내 유저 정보를 DB에서 불러오고, 없으면 새로 등록
+    async function loadUser() {
+      // app_users 에서 내 행 찾기 (없으면 data = null)
+      let res = await db.from("app_users").select("points, streak, last_checkin, discord, wallet, x_handle, agreed, onboarded, referred_by, referrals").eq("telegram_id", user.id).maybeSingle();
+      let data = res.data;
+      if (!data) {
+        // 처음 온 유저 → 0점으로 새로 등록
+        await db.from("app_users").insert({ telegram_id: user.id, name: user.first_name || "User", points: 0, streak: 0 });
+        data = { points: 0, streak: 0, last_checkin: null };
+      }
+      pointsEl.textContent = data.points;        // 점수 표시
+      myStreak = data.streak || 0;               // 연속출석 기억
+      myLastCheckin = data.last_checkin || null;
+      myReg = { discord: data.discord || "", wallet: data.wallet || "", x_handle: data.x_handle || "", agreed: !!data.agreed };
+      myOnboarded = !!data.onboarded; // 온보딩(최초설정) 완료 여부
+      myReferredBy = data.referred_by || null;   // 나를 초대한 사람
+      myReferrals  = data.referrals || 0;        // 내가 초대한 사람 수
+      const nr = document.getElementById("navRef");
+      if (nr) nr.textContent = "Referrals (" + myReferrals + ")"; // 상단에 초대 수 표시
+
+      // 완료기록 불러오기: 오늘 날짜(daily) + 고정날짜 2000-01-01(general=영구) 둘 다
+      const comp = await db.from("completions").select("mission_id").eq("telegram_id", user.id).in("day", [seoulToday(), "2000-01-01"]);
+      (comp.data || []).forEach(function (c) { doneToday.add(c.mission_id); }); // 완료한 미션 id 저장
+    }
+
+    // 점수를 amount 만큼 올리고 DB에 저장
+    async function addPoints(amount) {
+      const next = (parseInt(pointsEl.textContent, 10) || 0) + amount;
+      pointsEl.textContent = next;                                                    // 화면 먼저 갱신
+      await db.from("app_users").update({ points: next }).eq("telegram_id", user.id); // DB에 저장
+    }
+
+    // ===== 3) 출석체크 =====
+    const CHECKIN_POINTS = 2;   // 출석 한 번당 보상 점수
+
+    // 서울 기준 '어제' 날짜 — 연속출석인지 판단할 때 사용
+    function seoulYesterday() {
+      const d = new Date(seoulToday() + "T00:00:00");
+      d.setDate(d.getDate() - 1);              // 하루 빼기
+      return d.toLocaleDateString("en-CA");
+    }
+
+    // 출석 화면 그리기: 점 7개(연속일수만큼 채움) + 버튼 상태
+    function renderCheckin() {
+      const dots = document.getElementById("dots");
+      const btn = document.getElementById("checkinBtn");
+      const checkedToday = (myLastCheckin === seoulToday());  // 오늘 이미 출석했나?
+
+      if (dots) {
+        dots.innerHTML = "";
+        const filled = Math.min(myStreak, 7);   // 최대 7칸까지 표시
+        for (let i = 0; i < 7; i++) {
+          const d = document.createElement("div");
+          d.className = "dot" + (i < filled ? " done" : "");  // 채운 칸 / 빈 칸
+          d.textContent = i < filled ? "✓" : "";
+          dots.appendChild(d);
+        }
+      }
+      if (btn) {
+        if (checkedToday) {                      // 오늘 했으면 → 버튼 잠금
+          btn.textContent = "Checked in · " + myStreak + " day streak";
+          btn.classList.remove("ready");
+          btn.disabled = true;
+        } else {                                 // 아직이면 → 누를 수 있는 빨간 버튼
+          btn.textContent = "Check in (+" + CHECKIN_POINTS + ")";
+          btn.classList.add("ready");
+          btn.disabled = false;
+        }
+      }
+    }
+
+    // 출석 버튼 눌렀을 때
+    async function checkIn() {
+      if (myLastCheckin === seoulToday()) return;   // 이미 오늘 출석했으면 무시
+      // 어제도 출석했으면 연속(+1), 아니면 처음부터(1일)
+      myStreak = (myLastCheckin === seoulYesterday()) ? (myStreak + 1) : 1;
+      myLastCheckin = seoulToday();
+      // DB에 연속일수 / 마지막출석일 저장
+      await db.from("app_users").update({ streak: myStreak, last_checkin: myLastCheckin }).eq("telegram_id", user.id);
+      await addPoints(CHECKIN_POINTS);              // 보상 점수 지급
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success"); // 진동 피드백
+      renderCheckin();                              // 화면 갱신(잠금 상태로)
+    }
+
+    // ===== 4) 미션 =====
+    let missions = [];                              // 현재 탭의 미션 목록 (DB에서 채움)
+    const list = document.getElementById("missionList");
+    let currentCat = "daily";                        // 현재 보고 있는 탭(daily/general)
+
+    // DB에서 '활성화 + 현재 카테고리' 미션을 sort_order 순으로 불러오기
+    async function loadMissions(cat) {
+      currentCat = cat || currentCat;
+      const res = await db.from("missions")
+        .select("*").eq("active", true).eq("category", currentCat).order("sort_order");
+      missions = res.data || [];
+    }
+
+    // 미션 그리기: 미완료는 위 목록(missionList), 완료는 아래(completedList)로 분리
+    function renderMissions() {
+      const completed = document.getElementById("completedList");
+      list.innerHTML = "";
+      if (completed) completed.innerHTML = "";
+      let pending = 0, done = 0;                      // 미완료 / 완료 개수 세기
+
+      missions.forEach(function (m) {
+        const isDone = doneToday.has(m.id);           // 이 미션 이미 완료했나?
+        const row = document.createElement("div");
+        row.className = isDone ? "mission completed" : "mission";
+        row.innerHTML =
+          '<div class="icon">✕</div>' +
+          '<div class="info"><b>' + m.title + ' (' + m.points + 'p)</b>' +
+          '<small>' + (m.link ? m.link : m.title) + '</small></div>' +
+          (isDone ? '<button class="verify done" disabled>Done ✓</button>'   // 완료: 잠긴 버튼
+                  : '<button class="verify">Verify</button>');               // 미완료: 누를 수 있음
+
+        if (isDone) {
+          if (completed) completed.appendChild(row);   // 완료 → 아래 목록으로
+          done++;
+        } else {
+          const btn = row.querySelector(".verify");
+          // Verify 눌렀을 때
+          btn.addEventListener("click", async function () {
+            if (doneToday.has(m.id)) return;                      // 이미 했으면 무시
+            if (m.link) window.open(m.link, "_blank");            // 링크 있으면 새 탭으로 열기
+            // ▼ 백엔드 함수 호출: 검증·점수지급은 '서버'가 함 (화면은 신고만!)
+            //   화면은 미션 점수를 못 정함 → 조작 방지
+            let out = {};
+            try {
+              const resp = await fetch(FUNCTION_URL, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": "Bearer " + SUPABASE_ANON,
+                  "apikey": SUPABASE_ANON,
+                },
+                body: JSON.stringify({ telegram_id: user.id, mission_id: m.id }),
+              });
+              out = await resp.json();
+            } catch (e) { out = { ok: false }; }
+            doneToday.add(m.id);
+            // 서버가 돌려준 '최종 점수'를 화면에 반영 (화면이 계산 안 함)
+            if (out && typeof out.points === "number") pointsEl.textContent = out.points;
+            if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+            renderMissions();                                     // 완료 미션을 아래로 이동
+          });
+          list.appendChild(row);                       // 미완료 → 위 목록으로
+          pending++;
+        }
+      });
+
+      // 상단 "Mission N" = 남은 개수, 하단 "Completed N" = 완료 개수
+      const cnt = document.getElementById("missionCount");
+      if (cnt) cnt.textContent = pending;
+      const dc = document.getElementById("doneCount");
+      if (dc) dc.textContent = done;
+      const empty = document.getElementById("doneEmpty");
+      if (empty) empty.style.display = done ? "none" : "";         // 완료 없으면 안내문구 표시
+    }
+
+    // ===== 5) 탭 전환 · 초대링크 복사 =====
+    // 초대링크 복사 버튼 (Copy 눌렀을 때)
+    function copyRef() {
+      const text = document.getElementById("refLink").textContent;
+      if (navigator.clipboard) navigator.clipboard.writeText(text);
+      if (tg && tg.showAlert) tg.showAlert("Referral link copied!"); else alert("Referral link copied!");
+    }
+
+    // 초대링크(startapp=ref_XXX)로 들어왔으면 추천인에게 보상 요청 (서버가 검증)
+    async function processReferral() {
+      const sp = (tg && tg.initDataUnsafe) ? tg.initDataUnsafe.start_param : null;
+      if (!sp || sp.indexOf("ref_") !== 0) return;      // 초대 파라미터 없음
+      const refId = parseInt(sp.slice(4), 10);          // ref_ 뒤의 숫자 = 추천인 ID
+      if (!refId) return;
+      try {
+        await fetch(FUNCTION_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + SUPABASE_ANON, "apikey": SUPABASE_ANON },
+          body: JSON.stringify({ telegram_id: user.id, referrer_id: refId }),  // 서버가 자기초대/중복 검증
+        });
+      } catch (e) {}
+    }
+
+    // ===== 등록 폼 (배너 클릭 시) =====
+    // 폼 열기 — 기존에 저장된 값이 있으면 채워줌
+    function openReg() {
+      document.getElementById("regAgree").checked = !!myReg.agreed;
+      document.getElementById("regDiscord").value = myReg.discord || "";
+      document.getElementById("regWallet").value = myReg.wallet || "";
+      document.getElementById("regX").value = myReg.x_handle || "";
+      document.getElementById("regModal").style.display = "flex";
+    }
+    function closeReg() { document.getElementById("regModal").style.display = "none"; }
+
+    // 폼 저장 — 입력값 확인 후 DB에 저장
+    async function submitReg() {
+      const agreed   = document.getElementById("regAgree").checked;
+      const discord  = document.getElementById("regDiscord").value.trim();
+      const wallet   = document.getElementById("regWallet").value.trim();
+      const x_handle = document.getElementById("regX").value.trim();
+      if (!agreed) { alert("Please check \"I understand and agree\" first."); return; }
+      // 지갑주소 기본 확인 (0x 로 시작 + 최소 길이)
+      if (!wallet.startsWith("0x") || wallet.length < 10) { alert("Please enter a valid wallet address (0x...)."); return; }
+      // DB(app_users)에 등록정보 저장
+      await db.from("app_users").update({
+        discord, wallet, x_handle, agreed, registered_at: new Date().toISOString()
+      }).eq("telegram_id", user.id);
+      myReg = { discord, wallet, x_handle, agreed };  // 화면 기억값도 갱신
+      closeReg();
+      if (tg && tg.showAlert) tg.showAlert("Registered successfully!"); else alert("Registered successfully!");
+    }
+
+    // 등록 폼 버튼들 연결
+    function wireReg() {
+      const b = document.getElementById("regBanner");
+      const c = document.getElementById("regClose");
+      const s = document.getElementById("regSubmit");
+      if (b) b.addEventListener("click", openReg);
+      if (c) c.addEventListener("click", closeReg);
+      if (s) s.addEventListener("click", submitReg);
+    }
+
+    // ===== 온보딩 (신규 유저 최초 1회 단계별 설정) =====
+    // 단계 정의 (밑에 점 개수 = 단계 수)
+    // ▼ 링크는 나중에 실제 Xphere 계정 주소로 교체하세요
+    const OB_LINKS = {
+      x:        "https://x.com/Xphere_official",                               // X 프로필
+      post:     "https://x.com/Xphere_official/status/2079884064547611029?s=20", // 리트윗할 트윗
+      telegram: "https://t.me/Xphere_official",                               // 텔레그램
+      discord:  "https://discord.com/invite/xphere",                          // 디스코드
+    };
+    const OB_STEPS = [
+      { title: "Welcome to Xphere Airdrop", sub: "Complete a quick setup to join the airdrop.",  type: "agree" },
+      { title: "Connect your X account",    sub: "Enter your X (Twitter) handle to continue.",    type: "xconnect", url: OB_LINKS.x },
+      { title: "Repost & Like our post",    sub: "Open the post, then repost and like it.",       type: "task", url: OB_LINKS.post,     action: "Open post" },
+      { title: "Join our Telegram",         sub: "Join the official Xphere Telegram channel.",    type: "task", url: OB_LINKS.telegram, action: "Open Telegram" },
+      { title: "Join our Discord",          sub: "Join the official Xphere Discord server.",      type: "task", url: OB_LINKS.discord,  action: "Open Discord" },
+      { title: "You're all set!",           sub: "Start completing missions and earn points.",    type: "done" },
+    ];
+    let obIndex = 0;
+    const obData = { agreed: false, x_handle: "" }; // 입력값 임시보관 (지금은 X핸들만)
+
+    // 현재 단계 화면 그리기
+    function renderOb() {
+      const s = OB_STEPS[obIndex];
+      document.getElementById("obTitle").textContent = s.title;
+      document.getElementById("obSub").textContent = s.sub;
+      const body = document.getElementById("obBody");
+      body.innerHTML = "";
+      if (s.type === "agree") {
+        const label = document.createElement("label");
+        label.className = "ob-agree";
+        label.innerHTML = '<input type="checkbox" id="obAgree"> I understand and agree.';
+        body.appendChild(label);
+        const cb = label.querySelector("#obAgree");
+        cb.checked = obData.agreed;
+        cb.addEventListener("change", function (e) { obData.agreed = e.target.checked; });
+      } else if (s.type === "xconnect") {
+        // X 프로필 열기 버튼 (지금은 트위터 API 없이 '열기'만)
+        const open = document.createElement("button");
+        open.className = "ob-open"; open.textContent = "Open X ↗";
+        open.addEventListener("click", function () { window.open(s.url, "_blank"); });
+        body.appendChild(open);
+        // X 핸들 입력
+        const inp = document.createElement("input");
+        inp.type = "text"; inp.placeholder = "username"; inp.value = obData.x_handle || "";
+        inp.addEventListener("input", function (e) { obData.x_handle = e.target.value; });
+        body.appendChild(inp);
+      } else if (s.type === "task") {
+        // 트윗/텔레그램/디스코드 열기 버튼 (지금은 '열기'만, 검증은 나중에 API)
+        const open = document.createElement("button");
+        open.className = "ob-open"; open.textContent = s.action + " ↗";
+        open.addEventListener("click", function () { window.open(s.url, "_blank"); });
+        body.appendChild(open);
+      }
+      // 진행 점(dots)
+      const dots = document.getElementById("obDots");
+      dots.innerHTML = "";
+      for (let i = 0; i < OB_STEPS.length; i++) {
+        const d = document.createElement("div");
+        d.className = "ob-dot" + (i === obIndex ? " active" : "");
+        dots.appendChild(d);
+      }
+      document.getElementById("obNext").textContent = (obIndex === OB_STEPS.length - 1) ? "Get started" : "Next";
+    }
+
+    // Next 눌렀을 때 — 검증 후 다음 단계 / 마지막이면 완료
+    async function obNext() {
+      const s = OB_STEPS[obIndex];
+      if (s.type === "agree" && !obData.agreed) { alert("Please check \"I understand and agree\" first."); return; }
+      if (s.type === "xconnect" && !(obData.x_handle || "").trim()) { alert("Please enter your X handle."); return; }
+      // task(트윗/텔레그램/디스코드)는 지금은 검증 없이 통과 (나중에 API로)
+      if (obIndex < OB_STEPS.length - 1) { obIndex++; renderOb(); }
+      else { await finishOb(); }
+    }
+
+    // 온보딩 완료 — DB에 저장 + 완료표시 + 메인으로
+    async function finishOb() {
+      try {
+        await db.from("app_users").update({
+          agreed: true,
+          x_handle: (obData.x_handle || "").trim(),
+          onboarded: true,
+          registered_at: new Date().toISOString(),
+        }).eq("telegram_id", user.id);
+      } catch (e) {}
+      myReg.x_handle = obData.x_handle; myReg.agreed = true;
+      myOnboarded = true;
+      document.getElementById("obOverlay").style.display = "none"; // 메인화면 보이기
+    }
+
+    // 온보딩 시작 (신규 유저일 때만 호출)
+    function startOnboarding() {
+      const main = document.querySelector(".xmark");           // 메인 로고 재사용
+      const obLogo = document.getElementById("obLogo");
+      if (main && obLogo) obLogo.src = main.src;
+      obIndex = 0;
+      renderOb();
+      document.getElementById("obOverlay").style.display = "flex";
+    }
+
+    // Daily / General 탭 클릭 시 해당 카테고리 미션으로 전환
+    function wireTabs() {
+      document.querySelectorAll(".tab").forEach(function (t) {
+        t.addEventListener("click", async function () {
+          // 눌린 탭만 active 표시
+          document.querySelectorAll(".tab").forEach(function (x) { x.classList.remove("active"); });
+          t.classList.add("active");
+
+          const cat = t.getAttribute("data-cat");   // "daily" 또는 "general"
+          const daily = (cat === "daily");
+          // 출석체크/리셋문구는 Daily 탭에서만 보이게
+          const reset = document.querySelector(".reset-note");
+          const checkin = document.querySelector(".checkin");
+          if (reset) reset.style.display = daily ? "" : "none";
+          if (checkin) checkin.style.display = daily ? "" : "none";
+          // 섹션 제목도 바꿔주기
+          const st = document.querySelector(".section-title");
+          if (st) st.firstChild.textContent = daily ? "Daily Mission " : "General Mission ";
+
+          await loadMissions(cat);   // 해당 카테고리 미션 불러와서
+          renderMissions();          // 다시 그리기
+        });
+      });
+    }
+
+    // ===== 6) 앱 시작점 =====
+    // 앱이 열리면 이 순서대로 실행됨
+    async function init() {
+      await loadUser();           // ① 점수 + 출석정보 + 완료목록 불러오기
+      await processReferral();    // ① -1 초대링크로 들어왔으면 추천인 보상
+      renderCheckin();            // ② 출석 화면 그리기
+      const cbtn = document.getElementById("checkinBtn");
+      if (cbtn) cbtn.addEventListener("click", checkIn);  // ③ 출석 버튼 연결
+      await loadMissions("daily"); // ④ 기본(Daily) 미션 불러오기
+      renderMissions();           // ⑤ 미션 그리기
+      wireReg();                  // 등록 폼 버튼 연결
+      wireTabs();                 // ⑥ 탭 전환 켜기
+      document.getElementById("obNext").addEventListener("click", obNext); // 온보딩 Next 버튼
+      if (!myOnboarded) startOnboarding();   // 신규 유저면 온보딩 표시, 아니면 바로 메인
+    }
+    init();                       // 시작!
+  </script>
+</body>
+</html>
