@@ -372,8 +372,14 @@
       try { tg.setHeaderColor && tg.setHeaderColor("#0a0507"); tg.setBackgroundColor && tg.setBackgroundColor("#0a0507"); } catch (e) {}
       user = tg.initDataUnsafe && tg.initDataUnsafe.user;   // 로그인한 유저 정보(이름/id)
     }
-    // 텔레그램 밖(그냥 브라우저)에서 테스트로 열면 user 가 없으니 가짜 값 사용
-    if (!user) user = { first_name: "Henry", id: 7716704251 };
+    // 텔레그램 밖(그냥 브라우저)에서 열면 사용 불가 — 안내만 보여주고 멈춤 (보안: 가짜 유저 우회 차단)
+    if (!user) {
+      document.body.innerHTML =
+        '<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:24px">' +
+        '<div style="font-size:40px">🔒</div><b style="font-size:18px">Please open this app inside Telegram</b>' +
+        '<a href="https://t.me/Xphere_CommunityBot" style="color:#ff3547">t.me/Xphere_CommunityBot</a></div>';
+      throw new Error("not_in_telegram"); // 아래 코드 전부 실행 중단
+    }
     const INIT_DATA = tg ? (tg.initData || "") : "";  // 텔레그램 서명 (백엔드가 검증)
 
     // 받아온 정보를 화면에 표시
@@ -400,16 +406,15 @@
     // 오늘 날짜를 서울 기준 "YYYY-MM-DD" 로. (미션 리셋·출석의 '오늘' 기준점)
     function seoulToday() { return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" }); }
 
-    // 앱 열릴 때: 내 유저 정보를 DB에서 불러오고, 없으면 새로 등록
+    // 앱 열릴 때: 내 유저 정보를 '서버'에서 불러옴 (DB 직접 접근은 잠갔음 — 조작 방지)
+    //  처음 온 유저면 서버가 알아서 새로 등록해줌
     async function loadUser() {
-      // app_users 에서 내 행 찾기 (없으면 data = null)
-      let res = await db.from("app_users").select("points, streak, last_checkin, discord, wallet, x_handle, agreed, onboarded, referred_by, referrals").eq("telegram_id", user.id).maybeSingle();
-      let data = res.data;
-      if (!data) {
-        // 처음 온 유저 → 0점으로 새로 등록
-        await db.from("app_users").insert({ telegram_id: user.id, name: user.first_name || "User", points: 0, streak: 0 });
-        data = { points: 0, streak: 0, last_checkin: null };
+      const out = await callApi({ action: "load_user" });
+      if (!out || !out.ok) {
+        alert("Failed to load. Please reopen the app.");
+        return;
       }
+      const data = out.user || { points: 0, streak: 0, last_checkin: null };
       pointsEl.textContent = data.points;        // 점수 표시
       myStreak = data.streak || 0;               // 연속출석 기억
       myLastCheckin = data.last_checkin || null;
@@ -420,16 +425,8 @@
       const nr = document.getElementById("navRef");
       if (nr) nr.textContent = "Referrals (" + myReferrals + ")"; // 상단에 초대 수 표시
 
-      // 완료기록 불러오기: 오늘 날짜(daily) + 고정날짜 2000-01-01(general=영구) 둘 다
-      const comp = await db.from("completions").select("mission_id").eq("telegram_id", user.id).in("day", [seoulToday(), "2000-01-01"]);
-      (comp.data || []).forEach(function (c) { doneToday.add(c.mission_id); }); // 완료한 미션 id 저장
-    }
-
-    // 점수를 amount 만큼 올리고 DB에 저장
-    async function addPoints(amount) {
-      const next = (parseInt(pointsEl.textContent, 10) || 0) + amount;
-      pointsEl.textContent = next;                                                    // 화면 먼저 갱신
-      await db.from("app_users").update({ points: next }).eq("telegram_id", user.id); // DB에 저장
+      // 완료한 미션 목록도 서버가 같이 보내줌 (오늘분 daily + 영구 general)
+      (out.completions || []).forEach(function (id) { doneToday.add(id); });
     }
 
     // 백엔드 호출 공통 함수 (initData 서명 같이 보냄 → 서버가 신원 검증)
@@ -438,7 +435,7 @@
         const resp = await fetch(FUNCTION_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": "Bearer " + SUPABASE_ANON, "apikey": SUPABASE_ANON },
-          body: JSON.stringify({ initData: INIT_DATA, telegram_id: user.id, ...payload }),
+          body: JSON.stringify({ initData: INIT_DATA, ...payload }),
         });
         return await resp.json();
       } catch (e) { return { ok: false, reason: "network" }; }
@@ -539,19 +536,7 @@
             if (m.link) window.open(m.link, "_blank");            // 링크 있으면 새 탭으로 열기
             // ▼ 백엔드 함수 호출: 검증·점수지급은 '서버'가 함 (화면은 신고만!)
             //   화면은 미션 점수를 못 정함 → 조작 방지
-            let out = {};
-            try {
-              const resp = await fetch(FUNCTION_URL, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  "Authorization": "Bearer " + SUPABASE_ANON,
-                  "apikey": SUPABASE_ANON,
-                },
-                body: JSON.stringify({ initData: INIT_DATA, telegram_id: user.id, mission_id: m.id }),
-              });
-              out = await resp.json();
-            } catch (e) { out = { ok: false }; }
+            const out = await callApi({ mission_id: m.id });
             // 검증 실패(채널 미가입 등)면 완료 처리 안 하고 안내
             if (out && out.reason === "not_joined") {
               if (tg && tg.showAlert) tg.showAlert("Please join first, then tap Verify again.");
@@ -592,13 +577,7 @@
       if (!sp || sp.indexOf("ref_") !== 0) return;      // 초대 파라미터 없음
       const refId = parseInt(sp.slice(4), 10);          // ref_ 뒤의 숫자 = 추천인 ID
       if (!refId) return;
-      try {
-        await fetch(FUNCTION_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + SUPABASE_ANON, "apikey": SUPABASE_ANON },
-          body: JSON.stringify({ initData: INIT_DATA, telegram_id: user.id, referrer_id: refId }),  // 서버가 검증
-        });
-      } catch (e) {}
+      await callApi({ referrer_id: refId });  // 서버가 검증
     }
 
     // ===== 등록 폼 (배너 클릭 시) =====

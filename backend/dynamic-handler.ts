@@ -40,10 +40,9 @@ async function resolveUserId(body) {
   if (body.initData) {
     const u = await verifyInitData(body.initData);
     if (!u || !u.id) return { error: "unauthorized" };
-    return { id: Number(u.id) };
+    return { id: Number(u.id), name: u.first_name || "User" }; // 이름도 같이 (표시용 최신화)
   }
-  if (body.telegram_id) return { id: Number(body.telegram_id) }; // 개발용 우회 (런칭 전 제거)
-  return { error: "no_user" };
+  return { error: "no_user" }; // initData 서명 없으면 무조건 거부 (우회 없음)
 }
 async function isTelegramMember(channel, userId) {
   const token = Deno.env.get("BOT_TOKEN");
@@ -81,6 +80,24 @@ Deno.serve(async (req) => {
     const telegram_id = who.id;
 
     const db = createClient(Deno.env.get("SUPABASE_URL"), Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"));
+
+    // ===== 내 정보 불러오기 (앱 켤 때 호출) =====
+    //  DB를 클라이언트가 직접 못 읽게 잠갔으므로, 읽기도 이 창구로만.
+    //  처음 온 유저면 여기서 새로 등록. 텔레그램 이름 바뀌었으면 최신화.
+    if (action === "load_user") {
+      let { data: u } = await db.from("app_users")
+        .select("name, points, streak, last_checkin, discord, wallet, x_handle, agreed, onboarded, referred_by, referrals")
+        .eq("telegram_id", telegram_id).maybeSingle();
+      if (!u) {
+        await db.from("app_users").insert({ telegram_id, name: who.name, points: 0, streak: 0 });
+        u = { name: who.name, points: 0, streak: 0, last_checkin: null };
+      } else if (who.name && u.name !== who.name) {
+        await db.from("app_users").update({ name: who.name }).eq("telegram_id", telegram_id); // 이름 최신화
+      }
+      const { data: comp } = await db.from("completions")
+        .select("mission_id").eq("telegram_id", telegram_id).in("day", [seoulToday(), "2000-01-01"]);
+      return json({ ok: true, user: u, completions: (comp || []).map((c) => c.mission_id) });
+    }
 
     // ===== 출석체크 =====
     if (action === "checkin") {

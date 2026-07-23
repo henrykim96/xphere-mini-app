@@ -29,11 +29,9 @@ create table app_users (
 -- RLS(Row Level Security) 켜기 = "이 표에 누가 접근 가능한지 규칙으로 통제"
 alter table app_users enable row level security;
 
--- 정책: 누구나 읽기/등록/수정 가능 (학습용이라 넓게 열어둠)
---  ※ 실서비스라면 점수 조작 방지를 위해 백엔드에서만 쓰도록 좁혀야 함
-create policy "anyone can read"   on app_users for select using (true);
-create policy "anyone can insert" on app_users for insert with check (true);
-create policy "anyone can update" on app_users for update using (true);
+-- 정책: 없음! = 클라이언트(anon)는 직접 접근 불가, 서버(service role)만 가능
+--  ※ 처음엔 학습용으로 read/insert/update 열어뒀다가 2026-07-23 잠금 (database-lockdown.sql 참고)
+--  ※ 앱은 dynamic-handler의 load_user/register 등을 통해서만 읽고 씀
 
 
 -- ============================================================
@@ -55,9 +53,7 @@ create table completions (
 
 alter table completions enable row level security;
 
--- 정책: 누구나 읽기/등록 가능 (수정·삭제는 불필요)
-create policy "anyone can read"   on completions for select using (true);
-create policy "anyone can insert" on completions for insert with check (true);
+-- 정책: 없음! = 클라이언트 직접 접근 불가, 서버만 가능 (2026-07-23 잠금)
 
 
 -- ============================================================
