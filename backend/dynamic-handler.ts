@@ -1,23 +1,25 @@
 // ============================================================
-//  dynamic-handler — 미션(+텔레그램검증) + 초대 + initData 보안검증
+//  dynamic-handler — 미션·초대·출석·등록 + initData 보안검증
 // ------------------------------------------------------------
-//  ★ initData 검증: 화면이 보낸 텔레그램 서명(initData)을 봇 토큰으로 확인 →
-//     '진짜 그 유저'임을 서버가 증명. 위조하면 거부.
-//  ※ 개발용 임시 우회: initData 없으면 body.telegram_id 사용 (⚠️런칭 전 제거)
+//  모든 '쓰기'는 이 함수를 거침. body.action / mission_id / referrer_id 로 분기.
+//  ★ initData 검증으로 '진짜 유저'만 처리. (개발용 우회: 런칭 전 제거)
 // ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const REFERRAL_POINTS = 10;
+const CHECKIN_POINTS = 2;
 function seoulToday() { return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" }); }
+function seoulYesterday() {
+  const d = new Date(seoulToday() + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
 
-// --- HMAC-SHA256 도우미 ---
 async function hmac(keyBytes, msg) {
   const key = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   return new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msg)));
 }
-
-// --- 텔레그램 initData 서명 검증 → 진짜면 user 객체 반환, 위조면 null ---
 async function verifyInitData(initData) {
   const token = Deno.env.get("BOT_TOKEN");
   if (!token || !initData) return null;
@@ -28,27 +30,21 @@ async function verifyInitData(initData) {
   const pairs = [];
   for (const [k, v] of params.entries()) pairs.push(k + "=" + v);
   pairs.sort();
-  const dataCheckString = pairs.join("\n");
-  const secretKey = await hmac(new TextEncoder().encode("WebAppData"), token); // 1차 키
-  const computed = await hmac(secretKey, dataCheckString);                     // 2차 해시
+  const secretKey = await hmac(new TextEncoder().encode("WebAppData"), token);
+  const computed = await hmac(secretKey, pairs.join("\n"));
   const computedHex = [...computed].map((b) => b.toString(16).padStart(2, "0")).join("");
-  if (computedHex !== hash) return null; // 서명 불일치 = 위조
+  if (computedHex !== hash) return null;
   try { return JSON.parse(params.get("user")); } catch (e) { return null; }
 }
-
-// --- 요청자의 '진짜' telegram_id 알아내기 ---
 async function resolveUserId(body) {
   if (body.initData) {
     const u = await verifyInitData(body.initData);
-    if (!u || !u.id) return { error: "unauthorized" }; // 위조된 initData
+    if (!u || !u.id) return { error: "unauthorized" };
     return { id: Number(u.id) };
   }
-  // 개발용 우회 (⚠️ 실서비스 전 이 부분 제거)
-  if (body.telegram_id) return { id: Number(body.telegram_id) };
+  if (body.telegram_id) return { id: Number(body.telegram_id) }; // 개발용 우회 (런칭 전 제거)
   return { error: "no_user" };
 }
-
-// 텔레그램 채널 가입 확인
 async function isTelegramMember(channel, userId) {
   const token = Deno.env.get("BOT_TOKEN");
   if (!token) return false;
@@ -68,26 +64,52 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { mission_id, referrer_id } = body;
+    const { action, mission_id, referrer_id } = body;
 
-    // ★ 요청자 신원 확인 (여기서 telegram_id 를 '서버가' 결정 — 화면 말 안 믿음)
-    const who = await resolveUserId(body);
+    const who = await resolveUserId(body); // ★ 서버가 신원 확인
     if (who.error) return json({ ok: false, reason: who.error }, 401);
     const telegram_id = who.id;
 
     const db = createClient(Deno.env.get("SUPABASE_URL"), Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"));
 
-    // ① 미션 완료 (+텔레그램 검증)
+    // ===== 출석체크 =====
+    if (action === "checkin") {
+      const { data: u } = await db.from("app_users").select("points, streak, last_checkin").eq("telegram_id", telegram_id).maybeSingle();
+      const today = seoulToday();
+      if (u && u.last_checkin === today) return json({ ok: false, reason: "already", points: u.points || 0, streak: u.streak || 0 });
+      const prev = u && u.last_checkin ? u.last_checkin : null;
+      const newStreak = (prev === seoulYesterday()) ? ((u.streak || 0) + 1) : 1; // 연속/리셋
+      const newPoints = (u ? (u.points || 0) : 0) + CHECKIN_POINTS;
+      await db.from("app_users").upsert({ telegram_id, streak: newStreak, last_checkin: today, points: newPoints });
+      return json({ ok: true, points: newPoints, streak: newStreak });
+    }
+
+    // ===== 등록/온보딩 저장 =====
+    if (action === "register") {
+      const upd = { telegram_id };
+      if (body.discord !== undefined) upd.discord = body.discord;
+      if (body.x_handle !== undefined) upd.x_handle = body.x_handle;
+      if (body.agreed !== undefined) upd.agreed = body.agreed;
+      if (body.onboarded !== undefined) upd.onboarded = body.onboarded;
+      if (body.wallet !== undefined) {
+        const w = String(body.wallet || "");
+        if (w && (!w.startsWith("0x") || w.length < 10)) return json({ ok: false, reason: "bad_wallet" }); // 서버도 검증
+        upd.wallet = body.wallet;
+      }
+      upd.registered_at = new Date().toISOString();
+      await db.from("app_users").upsert(upd);
+      return json({ ok: true });
+    }
+
+    // ===== 미션 완료 (+텔레그램 검증) =====
     if (mission_id) {
       const { data: mission } = await db.from("missions")
         .select("points, category, active, verify_type, verify_target").eq("id", mission_id).maybeSingle();
       if (!mission || !mission.active) return json({ ok: false, reason: "no_mission" }, 404);
-
       if (mission.verify_type === "telegram") {
         const joined = await isTelegramMember(mission.verify_target, telegram_id);
         if (!joined) return json({ ok: false, reason: "not_joined" });
       }
-
       const day = mission.category === "general" ? "2000-01-01" : seoulToday();
       const { error: insErr } = await db.from("completions").insert({ telegram_id, mission_id, day });
       if (insErr) {
@@ -100,7 +122,7 @@ Deno.serve(async (req) => {
       return json({ ok: true, points: newPoints, added: mission.points });
     }
 
-    // ② 초대(referral)
+    // ===== 초대 =====
     if (referrer_id) {
       if (Number(referrer_id) === Number(telegram_id)) return json({ ok: false, reason: "self" });
       const { data: me } = await db.from("app_users").select("referred_by").eq("telegram_id", telegram_id).maybeSingle();

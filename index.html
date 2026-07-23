@@ -432,6 +432,18 @@
       await db.from("app_users").update({ points: next }).eq("telegram_id", user.id); // DB에 저장
     }
 
+    // 백엔드 호출 공통 함수 (initData 서명 같이 보냄 → 서버가 신원 검증)
+    async function callApi(payload) {
+      try {
+        const resp = await fetch(FUNCTION_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + SUPABASE_ANON, "apikey": SUPABASE_ANON },
+          body: JSON.stringify({ initData: INIT_DATA, telegram_id: user.id, ...payload }),
+        });
+        return await resp.json();
+      } catch (e) { return { ok: false, reason: "network" }; }
+    }
+
     // ===== 3) 출석체크 =====
     const CHECKIN_POINTS = 2;   // 출석 한 번당 보상 점수
 
@@ -475,11 +487,12 @@
     async function checkIn() {
       if (myLastCheckin === seoulToday()) return;   // 이미 오늘 출석했으면 무시
       // 어제도 출석했으면 연속(+1), 아니면 처음부터(1일)
-      myStreak = (myLastCheckin === seoulYesterday()) ? (myStreak + 1) : 1;
+      // 출석 처리는 '서버'가 함 (연속일수 계산·점수 지급 모두 서버)
+      const out = await callApi({ action: "checkin" });
+      if (!out || (!out.ok && out.reason !== "already")) { alert("Check-in failed. Please try again."); return; }
       myLastCheckin = seoulToday();
-      // DB에 연속일수 / 마지막출석일 저장
-      await db.from("app_users").update({ streak: myStreak, last_checkin: myLastCheckin }).eq("telegram_id", user.id);
-      await addPoints(CHECKIN_POINTS);              // 보상 점수 지급
+      if (typeof out.streak === "number") myStreak = out.streak;
+      if (typeof out.points === "number") pointsEl.textContent = out.points;
       if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success"); // 진동 피드백
       renderCheckin();                              // 화면 갱신(잠금 상태로)
     }
@@ -608,10 +621,9 @@
       if (!agreed) { alert("Please check \"I understand and agree\" first."); return; }
       // 지갑주소 기본 확인 (0x 로 시작 + 최소 길이)
       if (!wallet.startsWith("0x") || wallet.length < 10) { alert("Please enter a valid wallet address (0x...)."); return; }
-      // DB(app_users)에 등록정보 저장
-      await db.from("app_users").update({
-        discord, wallet, x_handle, agreed, registered_at: new Date().toISOString()
-      }).eq("telegram_id", user.id);
+      // 저장은 '서버'가 함 (지갑 형식도 서버가 다시 확인)
+      const out = await callApi({ action: "register", discord, wallet, x_handle, agreed });
+      if (!out || !out.ok) { alert("Failed to save. Please try again."); return; }
       myReg = { discord, wallet, x_handle, agreed };  // 화면 기억값도 갱신
       closeReg();
       if (tg && tg.showAlert) tg.showAlert("Registered successfully!"); else alert("Registered successfully!");
@@ -703,14 +715,8 @@
 
     // 온보딩 완료 — DB에 저장 + 완료표시 + 메인으로
     async function finishOb() {
-      try {
-        await db.from("app_users").update({
-          agreed: true,
-          x_handle: (obData.x_handle || "").trim(),
-          onboarded: true,
-          registered_at: new Date().toISOString(),
-        }).eq("telegram_id", user.id);
-      } catch (e) {}
+      // 저장은 '서버'가 함
+      await callApi({ action: "register", x_handle: (obData.x_handle || "").trim(), agreed: true, onboarded: true });
       myReg.x_handle = obData.x_handle; myReg.agreed = true;
       myOnboarded = true;
       document.getElementById("obOverlay").style.display = "none"; // 메인화면 보이기
