@@ -538,6 +538,12 @@
               });
               out = await resp.json();
             } catch (e) { out = { ok: false }; }
+            // 검증 실패(채널 미가입 등)면 완료 처리 안 하고 안내
+            if (out && out.reason === "not_joined") {
+              if (tg && tg.showAlert) tg.showAlert("Please join first, then tap Verify again.");
+              else alert("Please join first, then tap Verify again.");
+              return;
+            }
             doneToday.add(m.id);
             // 서버가 돌려준 '최종 점수'를 화면에 반영 (화면이 계산 안 함)
             if (out && typeof out.points === "number") pointsEl.textContent = out.points;
