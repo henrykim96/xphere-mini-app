@@ -551,13 +551,24 @@
             }
             if (state !== "verify") return; // checking 중이면 무시(중복 클릭 방지)
 
-            // 2) Verify — Verifying… 로 잠그고 서버 검증 요청
+            // 2) Verify — Verifying 로 잠그고 서버 검증 요청
             state = "checking";
-            btn.textContent = "Verifying…";
             btn.disabled = true;
             btn.classList.add("checking");
+            // 점 애니메이션: Verifying → Verifying. → Verifying.. → Verifying… 반복 (일하는 느낌)
+            let dotN = 0;
+            btn.textContent = "Verifying";
+            const dotTimer = setInterval(function () {
+              dotN = (dotN + 1) % 4;
+              btn.textContent = "Verifying" + ".".repeat(dotN);
+            }, 400);
 
+            // Verifying 최소 표시 시간(ms) — 검증이 빨리 끝나도 이 시간만큼은 유지 (원하면 숫자만 조절)
+            const VERIFYING_MS = 10000;
+            const minWait = new Promise(function (r) { setTimeout(r, VERIFYING_MS); });
             const out = await callApi({ mission_id: m.id }); // 검증·점수지급 모두 서버가 함
+            await minWait; // 검증이 더 빨리 끝났으면 남은 시간만큼 더 기다림
+            clearInterval(dotTimer); // 점 애니메이션 멈춤
 
             // 실패 → 다시 Verify 로 되돌려서 재시도 가능하게
             const failed = !out || (!out.ok && out.reason !== "already");
