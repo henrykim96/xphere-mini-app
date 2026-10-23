@@ -263,8 +263,8 @@
   </div>
   <div class="subnav"><a>Earnings</a><a>Submissions</a><a id="navRef">Referrals</a></div>
 
-  <!-- ===== 초대 링크 ===== -->
-  <div class="ref">
+  <!-- ===== 초대 링크 (REFERRAL_ENABLED=false 이면 JS가 숨김) ===== -->
+  <div class="ref" id="refBox">
     <code id="refLink">https://t.me/Xphere_Bot?start=ref_0000000000</code>
     <button onclick="copyRef()">Copy</button>
   </div>
@@ -388,7 +388,13 @@
     // 받아온 정보를 화면에 표시
     document.getElementById("userName").textContent = user.first_name || "User";
     document.getElementById("avatar").textContent = (user.first_name || "?").charAt(0).toUpperCase();
+    // ★ 초대(레퍼럴) 기능 스위치. 다시 켜려면 true (backend/dynamic-handler.ts의 REFERRAL_ENABLED도 같이)
+    const REFERRAL_ENABLED = false;
     document.getElementById("refLink").textContent = "https://t.me/Xphere_CommunityBot?startapp=ref_" + user.id; // 내 초대링크
+    if (!REFERRAL_ENABLED) {                       // 꺼져 있으면 초대 링크 박스와 상단 Referrals 메뉴 숨김
+      document.getElementById("refBox").style.display = "none";
+      document.getElementById("navRef").style.display = "none";
+    }
 
     // ===== 2) DB 연결 (Supabase) =====
     const SUPABASE_URL  = "https://ltodfynoaozgcaobwcgo.supabase.co";
@@ -426,7 +432,7 @@
       myReferredBy = data.referred_by || null;   // 나를 초대한 사람
       myReferrals  = data.referrals || 0;        // 내가 초대한 사람 수
       const nr = document.getElementById("navRef");
-      if (nr) nr.textContent = "Referrals (" + myReferrals + ")"; // 상단에 초대 수 표시
+      if (nr && REFERRAL_ENABLED) nr.textContent = "Referrals (" + myReferrals + ")"; // 상단에 초대 수 표시
 
       // 완료한 미션 목록도 서버가 같이 보내줌 (오늘분 daily + 영구 general)
       (out.completions || []).forEach(function (id) { doneToday.add(id); });
@@ -626,6 +632,7 @@
 
     // 초대링크(startapp=ref_XXX)로 들어왔으면 추천인에게 보상 요청 (서버가 검증)
     async function processReferral() {
+      if (!REFERRAL_ENABLED) return;                    // 기능 꺼짐
       const sp = (tg && tg.initDataUnsafe) ? tg.initDataUnsafe.start_param : null;
       if (!sp || sp.indexOf("ref_") !== 0) return;      // 초대 파라미터 없음
       const refId = parseInt(sp.slice(4), 10);          // ref_ 뒤의 숫자 = 추천인 ID

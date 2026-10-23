@@ -7,6 +7,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+const REFERRAL_ENABLED = false; // ★ 초대(레퍼럴) 기능 스위치. 다시 켜려면 true (index.html의 REFERRAL_ENABLED도 같이)
 const REFERRAL_POINTS = 10;
 const CHECKIN_POINTS = 2;
 // ★ 데일리 리셋 기준 = UTC 자정 (2026-10-23 서울→UTC로 변경)
@@ -143,7 +144,7 @@ Deno.serve(async (req) => {
       upd.registered_at = new Date().toISOString();
       await db.from("app_users").upsert(upd);
       // 초대받고 온 유저가 온보딩을 끝냈으면 → 이제서야 추천인에게 보상 + 초대 수 +1
-      if (justOnboarded && before && before.referred_by) {
+      if (REFERRAL_ENABLED && justOnboarded && before && before.referred_by) {
         const { data: ref } = await db.from("app_users").select("points, referrals").eq("telegram_id", before.referred_by).maybeSingle();
         if (ref) {
           await db.from("app_users").update({ points: (ref.points || 0) + REFERRAL_POINTS, referrals: (ref.referrals || 0) + 1 }).eq("telegram_id", before.referred_by);
@@ -175,6 +176,7 @@ Deno.serve(async (req) => {
 
     // ===== 초대 =====
     if (referrer_id) {
+      if (!REFERRAL_ENABLED) return json({ ok: false, reason: "disabled" }); // 기능 꺼짐 → 초대 기록도 안 함
       if (Number(referrer_id) === Number(telegram_id)) return json({ ok: false, reason: "self" });
       const { data: me } = await db.from("app_users").select("referred_by").eq("telegram_id", telegram_id).maybeSingle();
       if (me && me.referred_by) return json({ ok: false, reason: "already_referred" });
