@@ -95,7 +95,7 @@
     .ref {
       margin-top: 14px; background: rgba(255,255,255,0.03);
       border: 1px solid var(--line-2); border-radius: 12px;
-      padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 12px 14px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
     }
     .ref code { color: var(--muted); font-size: 12px; word-break: break-all; }
     .ref button {
@@ -267,6 +267,7 @@
   <div class="ref" id="refBox">
     <code id="refLink">https://t.me/Xphere_Bot?start=ref_0000000000</code>
     <button onclick="copyRef()">Copy</button>
+    <small style="flex-basis:100%;color:var(--muted);font-size:11px;margin-top:6px">Earn +10 Points when a friend joins, finishes setup and completes 3 missions.</small>
   </div>
 
   <!-- ===== 등록 배너 ===== -->
@@ -388,8 +389,8 @@
     // 받아온 정보를 화면에 표시
     document.getElementById("userName").textContent = user.first_name || "User";
     document.getElementById("avatar").textContent = (user.first_name || "?").charAt(0).toUpperCase();
-    // ★ 초대(레퍼럴) 기능 스위치. 다시 켜려면 true (backend/dynamic-handler.ts의 REFERRAL_ENABLED도 같이)
-    const REFERRAL_ENABLED = false;
+    // ★ 초대(레퍼럴) 기능 스위치. 끄려면 false (backend/dynamic-handler.ts의 REFERRAL_ENABLED도 같이)
+    const REFERRAL_ENABLED = true;
     document.getElementById("refLink").textContent = "https://t.me/Xphere_CommunityBot?startapp=ref_" + user.id; // 내 초대링크
     if (!REFERRAL_ENABLED) {                       // 꺼져 있으면 초대 링크 박스와 상단 Referrals 메뉴 숨김
       document.getElementById("refBox").style.display = "none";

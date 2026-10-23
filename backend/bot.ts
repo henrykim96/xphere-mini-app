@@ -28,13 +28,14 @@ Deno.serve(async (req) => {
 
     const welcome =
       "Welcome to Xphere Community! 🚀\n\n" +
-      "Earn points by completing missions and checking in daily. " +
+      "Earn points by completing missions, checking in daily, and inviting friends. " +
       "Rewards await when the Xphere airdrop launches.\n\n" +
       "Tap Play to get started.";
 
     const keyboard = {
       inline_keyboard: [
         [{ text: "🎮 Play", web_app: { url: appUrl } }],
+        [{ text: "👥 My Referrals", web_app: { url: appUrl } }],
       ],
     };
 

@@ -7,8 +7,10 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const REFERRAL_ENABLED = false; // ★ 초대(레퍼럴) 기능 스위치. 다시 켜려면 true (index.html의 REFERRAL_ENABLED도 같이)
+const REFERRAL_ENABLED = true;  // ★ 초대(레퍼럴) 기능 스위치. 끄려면 false (index.html의 REFERRAL_ENABLED도 같이)
 const REFERRAL_POINTS = 10;
+const REFERRAL_MIN_MISSIONS = 3; // 피초대자가 온보딩 + 미션 이 개수 이상 완료해야 추천인 보상 (부계정 어뷰징 방지)
+const REFERRAL_MAX_PAID = 50;    // 한 사람이 보상받을 수 있는 최대 초대 수 (피해 상한)
 const CHECKIN_POINTS = 2;
 // ★ 데일리 리셋 기준 = UTC 자정 (2026-10-23 서울→UTC로 변경)
 function utcToday() { return new Date().toISOString().slice(0, 10); }
@@ -45,6 +47,22 @@ async function resolveUserId(body) {
     return { id: Number(u.id), name: u.first_name || "User" }; // 이름도 같이 (표시용 최신화)
   }
   return { error: "no_user" }; // initData 서명 없으면 무조건 거부 (우회 없음)
+}
+// 초대 보상 지급 시도. 조건을 다 채웠을 때 '딱 한 번'만 추천인에게 보상.
+//  조건: ① 초대받고 온 유저 ② 온보딩 완료 ③ 미션 REFERRAL_MIN_MISSIONS개 이상 완료 ④ 아직 보상 안 나감
+async function tryPayReferral(db, telegram_id) {
+  if (!REFERRAL_ENABLED) return;
+  const { data: me } = await db.from("app_users").select("referred_by, onboarded, referral_paid").eq("telegram_id", telegram_id).maybeSingle();
+  if (!me || !me.referred_by || me.referral_paid || !me.onboarded) return;
+  const { count } = await db.from("completions").select("mission_id", { count: "exact", head: true }).eq("telegram_id", telegram_id);
+  if ((count || 0) < REFERRAL_MIN_MISSIONS) return;
+  // 동시요청 방어: '아직 안 받은 행'만 지급완료로 바꾸는 조건부 UPDATE → 한 요청만 통과
+  const { data: claimed } = await db.from("app_users").update({ referral_paid: true })
+    .eq("telegram_id", telegram_id).or("referral_paid.is.null,referral_paid.eq.false").select("telegram_id");
+  if (!claimed || claimed.length === 0) return;
+  const { data: ref } = await db.from("app_users").select("points, referrals").eq("telegram_id", me.referred_by).maybeSingle();
+  if (!ref || (ref.referrals || 0) >= REFERRAL_MAX_PAID) return; // 추천인 없음 or 상한 도달
+  await db.from("app_users").update({ points: (ref.points || 0) + REFERRAL_POINTS, referrals: (ref.referrals || 0) + 1 }).eq("telegram_id", me.referred_by);
 }
 async function isTelegramMember(channel, userId) {
   const token = Deno.env.get("BOT_TOKEN");
@@ -138,18 +156,9 @@ Deno.serve(async (req) => {
         if (w && (!w.startsWith("0x") || w.length < 10)) return json({ ok: false, reason: "bad_wallet" }); // 서버도 검증
         upd.wallet = body.wallet;
       }
-      // 온보딩이 '지금 처음' 완료되는 순간인지 확인 (보상 중복 지급 방지)
-      const { data: before } = await db.from("app_users").select("onboarded, referred_by").eq("telegram_id", telegram_id).maybeSingle();
-      const justOnboarded = body.onboarded === true && !(before && before.onboarded);
       upd.registered_at = new Date().toISOString();
       await db.from("app_users").upsert(upd);
-      // 초대받고 온 유저가 온보딩을 끝냈으면 → 이제서야 추천인에게 보상 + 초대 수 +1
-      if (REFERRAL_ENABLED && justOnboarded && before && before.referred_by) {
-        const { data: ref } = await db.from("app_users").select("points, referrals").eq("telegram_id", before.referred_by).maybeSingle();
-        if (ref) {
-          await db.from("app_users").update({ points: (ref.points || 0) + REFERRAL_POINTS, referrals: (ref.referrals || 0) + 1 }).eq("telegram_id", before.referred_by);
-        }
-      }
+      await tryPayReferral(db, telegram_id); // 온보딩 완료로 초대 보상 조건이 채워졌을 수 있음
       return json({ ok: true });
     }
 
@@ -171,6 +180,7 @@ Deno.serve(async (req) => {
       const { data: u } = await db.from("app_users").select("points").eq("telegram_id", telegram_id).maybeSingle();
       const newPoints = (u ? u.points : 0) + mission.points;
       await db.from("app_users").upsert({ telegram_id, points: newPoints });
+      await tryPayReferral(db, telegram_id); // 미션 완료로 초대 보상 조건(미션 N개)이 채워졌을 수 있음
       return json({ ok: true, points: newPoints, added: mission.points });
     }
 
@@ -178,11 +188,12 @@ Deno.serve(async (req) => {
     if (referrer_id) {
       if (!REFERRAL_ENABLED) return json({ ok: false, reason: "disabled" }); // 기능 꺼짐 → 초대 기록도 안 함
       if (Number(referrer_id) === Number(telegram_id)) return json({ ok: false, reason: "self" });
-      const { data: me } = await db.from("app_users").select("referred_by").eq("telegram_id", telegram_id).maybeSingle();
+      const { data: me } = await db.from("app_users").select("referred_by, onboarded").eq("telegram_id", telegram_id).maybeSingle();
       if (me && me.referred_by) return json({ ok: false, reason: "already_referred" });
+      if (me && me.onboarded) return json({ ok: false, reason: "not_new" }); // 이미 가입·온보딩한 기존 유저는 초대 대상 아님
       const { data: ref } = await db.from("app_users").select("telegram_id").eq("telegram_id", referrer_id).maybeSingle();
       if (!ref) return json({ ok: false, reason: "no_referrer" });
-      // ★ 여기선 '누가 초대했는지'만 기록. 보상은 피초대자가 온보딩을 끝낸 뒤(register)에 지급 → 부계정 어뷰징 방지
+      // ★ 여기선 '누가 초대했는지'만 기록. 보상은 피초대자가 온보딩+미션 N개를 끝낸 뒤(tryPayReferral)에 지급 → 부계정 어뷰징 방지
       await db.from("app_users").upsert({ telegram_id, referred_by: referrer_id });
       return json({ ok: true, reason: "referred" });
     }
