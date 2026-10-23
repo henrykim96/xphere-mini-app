@@ -24,6 +24,9 @@
       --red-hi:  #ff3547;    /* 밝은 레드 */
       --red-dk:  #8f0f1a;
       --green:   #2ecc71;
+      /* 전체화면일 때 노치/텔레그램 상단 버튼에 가려지지 않게 하는 여백 (텔레그램이 --tg-* 값을 채워줌, 없으면 0) */
+      --safe-top:    calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px));
+      --safe-bottom: var(--tg-safe-area-inset-bottom, 0px);
     }
 
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -40,7 +43,7 @@
       min-height: 100vh;
       max-width: 520px;
       margin: 0 auto;
-      padding: 0 16px 48px;
+      padding: var(--safe-top) 16px calc(48px + var(--safe-bottom));
     }
 
     /* ===== 히어로 (X 로고 글로우) ===== */
@@ -185,7 +188,7 @@
     .modal-overlay {
       display: none; position: fixed; inset: 0; z-index: 50;
       background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
-      align-items: center; justify-content: center; padding: 16px;
+      align-items: center; justify-content: center; padding: calc(16px + var(--safe-top)) 16px calc(16px + var(--safe-bottom));
     }
     .modal {
       width: 100%; max-width: 480px; max-height: 88vh; overflow-y: auto;
@@ -210,11 +213,35 @@
       box-shadow: 0 6px 20px rgba(225,29,42,0.35);
     }
 
+    /* ===== 시작 화면(스플래시): 로고가 확대되며 나타나고 로딩 바가 차오름 ===== */
+    #splash {
+      position: fixed; inset: 0; z-index: 100;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+      background: radial-gradient(120% 55% at 80% 0%, rgba(225,29,42,0.30), transparent 55%), linear-gradient(180deg, var(--bg-2), var(--bg));
+      transition: opacity .45s ease;
+    }
+    #splash.hide { opacity: 0; pointer-events: none; }
+    .splash-logo {
+      width: 112px; height: 112px; border-radius: 28px; border: 1px solid var(--line);
+      display: flex; align-items: center; justify-content: center;
+      animation: splashPop .8s cubic-bezier(.2,.9,.3,1.2) both, splashGlow 1.8s ease-in-out .8s infinite;
+    }
+    .splash-logo img { width: 70px; height: 70px; object-fit: contain; opacity: 0; transition: opacity .2s; }
+    .splash-logo img.ready { opacity: 1; }
+    .splash-name { font-size: 15px; font-weight: 700; letter-spacing: 6px; color: var(--muted); animation: splashUp .7s ease .35s both; }
+    .splash-bar { width: 120px; height: 3px; border-radius: 3px; background: rgba(255,255,255,0.08); overflow: hidden; animation: splashUp .7s ease .5s both; }
+    .splash-bar i { display: block; height: 100%; width: 0; border-radius: 3px; background: linear-gradient(90deg, var(--red), var(--red-hi)); animation: splashFill 1.4s ease-out .2s forwards; }
+    @keyframes splashPop  { from { opacity: 0; transform: scale(.55); } to { opacity: 1; transform: scale(1); } }
+    @keyframes splashGlow { 0%, 100% { filter: drop-shadow(0 0 14px rgba(225,29,42,0.35)); } 50% { filter: drop-shadow(0 0 34px rgba(255,53,71,0.75)); } }
+    @keyframes splashUp   { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes splashFill { to { width: 100%; } }
+    @media (prefers-reduced-motion: reduce) { #splash *, #splash { animation: none !important; } .splash-bar i { width: 100%; } }
+
     /* ===== 온보딩 (신규 유저 최초 1회) ===== */
     .ob-overlay {
       display: none; position: fixed; inset: 0; z-index: 60;
       background: radial-gradient(120% 55% at 80% 0%, rgba(225,29,42,0.28), transparent 55%), linear-gradient(180deg, var(--bg-2), var(--bg));
-      flex-direction: column; padding: 28px 22px;
+      flex-direction: column; padding: calc(28px + var(--safe-top)) 22px calc(28px + var(--safe-bottom));
     }
     .ob-top { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
     .ob-logo { width: 100px; height: 100px; border-radius: 24px; border: 1px solid var(--line);
@@ -241,6 +268,13 @@
   </style>
 </head>
 <body>
+
+  <!-- ===== 시작 화면(스플래시) — 앱 로딩이 끝나면 JS(hideSplash)가 걷어냄 ===== -->
+  <div id="splash">
+    <div class="splash-logo"><img id="splashLogo" alt="" /></div>
+    <div class="splash-name">XPHERE</div>
+    <div class="splash-bar"><i></i></div>
+  </div>
 
   <!-- ===== 히어로 (X 로고) ===== -->
   <div class="hero">
@@ -372,6 +406,12 @@
     if (tg) {
       tg.ready();      // "미니앱 준비 끝" 신호
       tg.expand();     // 화면 꽉 차게 펼치기
+      try {
+        // 전체화면 (텔레그램 8.0 이상). 구버전이면 위 expand()만 적용됨
+        if (tg.isVersionAtLeast && tg.isVersionAtLeast("8.0") && tg.requestFullscreen) tg.requestFullscreen();
+        // 아래로 쓸어내려 앱이 닫히는 것 방지 (7.7 이상)
+        if (tg.isVersionAtLeast && tg.isVersionAtLeast("7.7") && tg.disableVerticalSwipes) tg.disableVerticalSwipes();
+      } catch (e) {}
       // 텔레그램 상단/배경색을 Xphere 다크톤으로
       try { tg.setHeaderColor && tg.setHeaderColor("#0a0507"); tg.setBackgroundColor && tg.setBackgroundColor("#0a0507"); } catch (e) {}
       user = tg.initDataUnsafe && tg.initDataUnsafe.user;   // 로그인한 유저 정보(이름/id)
@@ -385,6 +425,20 @@
       throw new Error("not_in_telegram"); // 아래 코드 전부 실행 중단
     }
     const INIT_DATA = tg ? (tg.initData || "") : "";  // 텔레그램 서명 (백엔드가 검증)
+
+    // 스플래시 로고 채우기 (메인 로고 재사용) + 스플래시 걷어내기
+    (function () {
+      const main = document.querySelector(".xmark"), sl = document.getElementById("splashLogo");
+      if (main && sl) { sl.src = main.src; sl.classList.add("ready"); }
+    })();
+    const SPLASH_MIN_MS = 1500;                      // 최소 노출 시간 (애니메이션 끝까지 보여주기)
+    function hideSplash() {
+      const sp = document.getElementById("splash");
+      if (!sp || sp.classList.contains("hide")) return;
+      const wait = Math.max(0, SPLASH_MIN_MS - performance.now());   // 페이지 열린 지 1.5초 미만이면 남은 만큼 기다림
+      setTimeout(function () { sp.classList.add("hide"); setTimeout(function () { sp.remove(); }, 500); }, wait);
+    }
+    setTimeout(hideSplash, 8000);                    // 안전장치: 로딩이 멈춰도 8초 뒤엔 스플래시 제거
 
     // 받아온 정보를 화면에 표시
     document.getElementById("userName").textContent = user.first_name || "User";
@@ -691,9 +745,7 @@
     const OB_STEPS = [
       { title: "Welcome to Xphere Airdrop", sub: "Complete a quick setup to join the airdrop.",  type: "agree" },
       { title: "Connect your X account",    sub: "Enter your X (Twitter) handle to continue.",    type: "xconnect", url: OB_LINKS.x },
-      { title: "Repost & Like our post",    sub: "Open the post, then repost and like it.",       type: "task", url: OB_LINKS.post,     action: "Open post" },
-      { title: "Join our Telegram",         sub: "Join the official Xphere Telegram channel.",    type: "task", url: OB_LINKS.telegram, action: "Open Telegram" },
-      { title: "Join our Discord",          sub: "Join the official Xphere Discord server.",      type: "task", url: OB_LINKS.discord,  action: "Open Discord" },
+      { title: "Repost & Like our post",    sub: "Open the post, then repost and like it.",       type: "task", url: OB_LINKS.post,     action: "Open post", verifyMs: 40000 }, // verifyMs: Next 누르면 이 시간(ms) 동안 "Verifying…" 연출 (실제 확인 아님 — 나중에 X API 확인으로 교체)
       { title: "You're all set!",           sub: "Start completing missions and earn points.",    type: "done" },
     ];
     let obIndex = 0;
@@ -744,11 +796,26 @@
     }
 
     // Next 눌렀을 때 — 검증 후 다음 단계 / 마지막이면 완료
+    let obVerifying = false;                         // 검증 연출 중 중복 클릭 방지
     async function obNext() {
+      if (obVerifying) return;
       const s = OB_STEPS[obIndex];
       if (s.type === "agree" && !obData.agreed) { alert("Please check \"I understand and agree\" first."); return; }
       if (s.type === "xconnect" && !(obData.x_handle || "").trim()) { alert("Please enter your X handle."); return; }
       // task(트윗/텔레그램/디스코드)는 지금은 검증 없이 통과 (나중에 API로)
+      // verifyMs 가 있는 단계(리트윗)는 그 시간 동안 "Verifying…" 연출 후 통과 (확인하는 척)
+      if (s.verifyMs) {
+        obVerifying = true;
+        const btn = document.getElementById("obNext");
+        btn.disabled = true; btn.style.opacity = ".6";
+        let n = 0;
+        const dotTimer = setInterval(function () { n = (n + 1) % 4; btn.textContent = "Verifying" + ".".repeat(n); }, 400);
+        btn.textContent = "Verifying";
+        await new Promise(function (r) { setTimeout(r, s.verifyMs); });
+        clearInterval(dotTimer);
+        btn.disabled = false; btn.style.opacity = "";
+        obVerifying = false;
+      }
       if (obIndex < OB_STEPS.length - 1) { obIndex++; renderOb(); }
       else { await finishOb(); }
     }
@@ -812,7 +879,7 @@
       document.getElementById("obNext").addEventListener("click", obNext); // 온보딩 Next 버튼
       if (!myOnboarded) startOnboarding();   // 신규 유저면 온보딩 표시, 아니면 바로 메인
     }
-    init();                       // 시작!
+    init().finally(hideSplash);   // 시작! (성공/실패와 상관없이 끝나면 스플래시 걷어냄)
   </script>
 </body>
 </html>
