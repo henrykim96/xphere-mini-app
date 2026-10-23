@@ -72,7 +72,7 @@ Deno.serve(async (req) => {
       if (!pw || body.password !== pw) return json({ ok: false, reason: "unauthorized" }, 401);
       const dbA = createClient(Deno.env.get("SUPABASE_URL"), Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"));
       const { data } = await dbA.from("app_users")
-        .select("name, points, referrals, wallet, telegram_id, onboarded").order("points", { ascending: false });
+        .select("name, points, referrals, wallet, x_handle, discord, telegram_id, onboarded").order("points", { ascending: false });
       return json({ ok: true, users: data || [] });
     }
 
