@@ -27,6 +27,7 @@
       /* 전체화면일 때 노치/텔레그램 상단 버튼에 가려지지 않게 하는 여백 (텔레그램이 --tg-* 값을 채워줌, 없으면 0) */
       --safe-top:    calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px));
       --safe-bottom: var(--tg-safe-area-inset-bottom, 0px);
+      --splash-ms: 3500ms;   /* ★ 시작 화면 최소 노출 시간 (로딩 바도 이 시간에 맞춰 참). 길게/짧게 하려면 여기만 수정 */
     }
 
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -229,8 +230,8 @@
     .splash-logo img { width: 70px; height: 70px; object-fit: contain; opacity: 0; transition: opacity .2s; }
     .splash-logo img.ready { opacity: 1; }
     .splash-name { font-size: 15px; font-weight: 700; letter-spacing: 6px; color: var(--muted); animation: splashUp .7s ease .35s both; }
-    .splash-bar { width: 120px; height: 3px; border-radius: 3px; background: rgba(255,255,255,0.08); overflow: hidden; animation: splashUp .7s ease .5s both; }
-    .splash-bar i { display: block; height: 100%; width: 0; border-radius: 3px; background: linear-gradient(90deg, var(--red), var(--red-hi)); animation: splashFill 1.4s ease-out .2s forwards; }
+    .splash-bar { width: 150px; height: 4px; border-radius: 3px; background: rgba(255,255,255,0.08); overflow: hidden; animation: splashUp .7s ease .5s both; }
+    .splash-bar i { display: block; height: 100%; width: 0; border-radius: 3px; background: linear-gradient(90deg, var(--red), var(--red-hi)); animation: splashFill calc(var(--splash-ms) - 500ms) cubic-bezier(.45,.05,.35,1) .2s forwards; }
     @keyframes splashPop  { from { opacity: 0; transform: scale(.55); } to { opacity: 1; transform: scale(1); } }
     @keyframes splashGlow { 0%, 100% { filter: drop-shadow(0 0 14px rgba(225,29,42,0.35)); } 50% { filter: drop-shadow(0 0 34px rgba(255,53,71,0.75)); } }
     @keyframes splashUp   { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
@@ -431,14 +432,15 @@
       const main = document.querySelector(".xmark"), sl = document.getElementById("splashLogo");
       if (main && sl) { sl.src = main.src; sl.classList.add("ready"); }
     })();
-    const SPLASH_MIN_MS = 1500;                      // 최소 노출 시간 (애니메이션 끝까지 보여주기)
+    // 최소 노출 시간 = CSS의 --splash-ms 값 (한 곳에서만 관리)
+    const SPLASH_MIN_MS = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--splash-ms")) || 3500;
     function hideSplash() {
       const sp = document.getElementById("splash");
       if (!sp || sp.classList.contains("hide")) return;
-      const wait = Math.max(0, SPLASH_MIN_MS - performance.now());   // 페이지 열린 지 1.5초 미만이면 남은 만큼 기다림
+      const wait = Math.max(0, SPLASH_MIN_MS - performance.now());   // 페이지 열린 지 최소 시간 미만이면 남은 만큼 기다림
       setTimeout(function () { sp.classList.add("hide"); setTimeout(function () { sp.remove(); }, 500); }, wait);
     }
-    setTimeout(hideSplash, 8000);                    // 안전장치: 로딩이 멈춰도 8초 뒤엔 스플래시 제거
+    setTimeout(hideSplash, 10000);                   // 안전장치: 로딩이 멈춰도 10초 뒤엔 스플래시 제거
 
     // 받아온 정보를 화면에 표시
     document.getElementById("userName").textContent = user.first_name || "User";
