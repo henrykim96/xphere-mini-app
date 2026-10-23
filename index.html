@@ -9,6 +9,11 @@
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
+  <!-- 시작 화면 글자용 미래형 글꼴 (Orbitron). 안 불러와지면 기본 글꼴로 대체됨 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;800&display=swap" rel="stylesheet">
+
   <style>
     /* ===== Xphere 색상 팔레트 ===== */
     :root {
@@ -223,14 +228,15 @@
     }
     #splash.hide { opacity: 0; pointer-events: none; }
     .splash-logo {
-      width: 112px; height: 112px; border-radius: 28px; border: 1px solid var(--line);
+      width: 112px; height: 112px; border-radius: 28px; border: 1px solid var(--line); background: rgba(10,5,7,0.9);
       display: flex; align-items: center; justify-content: center;
       animation: splashPop .8s cubic-bezier(.2,.9,.3,1.2) both, splashGlow 1.8s ease-in-out .8s infinite;
     }
     .splash-logo img { width: 70px; height: 70px; object-fit: contain; opacity: 0; transition: opacity .2s; }
     .splash-logo img.ready { opacity: 1; }
-    .splash-name { font-size: 15px; font-weight: 700; letter-spacing: 6px; color: var(--muted); animation: splashUp .7s ease .35s both; }
-    .splash-bar { width: 150px; height: 4px; border-radius: 3px; background: rgba(255,255,255,0.08); overflow: hidden; animation: splashUp .7s ease .5s both; }
+    .splash-name { font-family: "Orbitron", "Segoe UI", sans-serif; text-align: center; font-size: 27px; font-weight: 800; letter-spacing: 5px; padding-left: 5px; color: #fff; line-height: 1.25; margin-top: 8px; animation: splashUp .7s ease .35s both; }
+    .splash-name span { display: block; font-size: 22px; font-weight: 500; letter-spacing: 9px; padding-left: 9px; margin-top: 4px; }
+    .splash-bar { width: 220px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.12); overflow: hidden; animation: splashUp .7s ease .5s both; }
     .splash-bar i { display: block; height: 100%; width: 0; border-radius: 3px; background: linear-gradient(90deg, var(--red), var(--red-hi)); animation: splashFill calc(var(--splash-ms) - 500ms) cubic-bezier(.45,.05,.35,1) .2s forwards; }
     @keyframes splashPop  { from { opacity: 0; transform: scale(.55); } to { opacity: 1; transform: scale(1); } }
     @keyframes splashGlow { 0%, 100% { filter: drop-shadow(0 0 14px rgba(225,29,42,0.35)); } 50% { filter: drop-shadow(0 0 34px rgba(255,53,71,0.75)); } }
@@ -273,7 +279,7 @@
   <!-- ===== 시작 화면(스플래시) — 앱 로딩이 끝나면 JS(hideSplash)가 걷어냄 ===== -->
   <div id="splash">
     <div class="splash-logo"><img id="splashLogo" alt="" /></div>
-    <div class="splash-name">XPHERE</div>
+    <div class="splash-name">XPHERE<span>MINI APP</span></div>
     <div class="splash-bar"><i></i></div>
   </div>
 
