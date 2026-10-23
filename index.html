@@ -327,7 +327,7 @@
     <div class="tab active" data-cat="daily">Daily</div>
     <div class="tab" data-cat="general">General</div>
   </div>
-  <div class="reset-note">Daily missions reset by timezone: Asia/Seoul</div>
+  <div class="reset-note">Daily missions reset at 00:00 UTC</div>
 
   <!-- ===== 출석체크 ===== -->
   <div class="checkin">
@@ -406,8 +406,8 @@
     let myOnboarded = false; // 온보딩 완료 여부
     let myReferredBy = null, myReferrals = 0; // 추천 정보  // 연속출석 일수 / 마지막 출석 날짜
 
-    // 오늘 날짜를 서울 기준 "YYYY-MM-DD" 로. (미션 리셋·출석의 '오늘' 기준점)
-    function seoulToday() { return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" }); }
+    // 오늘 날짜를 UTC 기준 "YYYY-MM-DD" 로. (미션 리셋·출석의 '오늘' 기준점. 서버와 동일해야 함)
+    function utcToday() { return new Date().toISOString().slice(0, 10); }
 
     // 앱 열릴 때: 내 유저 정보를 '서버'에서 불러옴 (DB 직접 접근은 잠갔음 — 조작 방지)
     //  처음 온 유저면 서버가 알아서 새로 등록해줌
@@ -447,22 +447,24 @@
     // ===== 3) 출석체크 =====
     const CHECKIN_POINTS = 2;   // 출석 한 번당 보상 점수
 
-    // 서울 기준 '어제' 날짜 — 연속출석인지 판단할 때 사용
-    function seoulYesterday() {
-      const d = new Date(seoulToday() + "T00:00:00");
-      d.setDate(d.getDate() - 1);              // 하루 빼기
-      return d.toLocaleDateString("en-CA");
+    // UTC 기준 '어제' 날짜 — 연속출석이 아직 살아있는지 판단할 때 사용
+    function utcYesterday() {
+      const d = new Date(utcToday() + "T00:00:00Z");
+      d.setUTCDate(d.getUTCDate() - 1);        // 하루 빼기
+      return d.toISOString().slice(0, 10);
     }
 
     // 출석 화면 그리기: 점 7개(연속일수만큼 채움) + 버튼 상태
     function renderCheckin() {
       const dots = document.getElementById("dots");
       const btn = document.getElementById("checkinBtn");
-      const checkedToday = (myLastCheckin === seoulToday());  // 오늘 이미 출석했나?
+      const checkedToday = (myLastCheckin === utcToday());  // 오늘 이미 출석했나?
+      // 어제도 오늘도 출석 안 했으면 연속은 이미 끊긴 것 → 0칸으로 표시 (서버도 다음 출석 때 1로 리셋함)
+      const streakAlive = checkedToday || myLastCheckin === utcYesterday();
 
       if (dots) {
         dots.innerHTML = "";
-        const filled = Math.min(myStreak, 7);   // 최대 7칸까지 표시
+        const filled = streakAlive ? Math.min(myStreak, 7) : 0;   // 최대 7칸까지 표시
         for (let i = 0; i < 7; i++) {
           const d = document.createElement("div");
           d.className = "dot" + (i < filled ? " done" : "");  // 채운 칸 / 빈 칸
@@ -484,13 +486,21 @@
     }
 
     // 출석 버튼 눌렀을 때
+    let checkingIn = false;                         // 처리 중 연타 방지
     async function checkIn() {
-      if (myLastCheckin === seoulToday()) return;   // 이미 오늘 출석했으면 무시
+      if (checkingIn || myLastCheckin === utcToday()) return;   // 처리 중이거나 이미 오늘 출석했으면 무시
+      checkingIn = true;
+      const cbtn = document.getElementById("checkinBtn");
+      if (cbtn) cbtn.disabled = true;
       // 어제도 출석했으면 연속(+1), 아니면 처음부터(1일)
       // 출석 처리는 '서버'가 함 (연속일수 계산·점수 지급 모두 서버)
       const out = await callApi({ action: "checkin" });
-      if (!out || (!out.ok && out.reason !== "already")) { alert("Check-in failed. Please try again."); return; }
-      myLastCheckin = seoulToday();
+      checkingIn = false;
+      if (!out || (!out.ok && out.reason !== "already")) {
+        if (cbtn) cbtn.disabled = false;            // 실패 시 다시 누를 수 있게
+        alert("Check-in failed. Please try again."); return;
+      }
+      myLastCheckin = utcToday();
       if (typeof out.streak === "number") myStreak = out.streak;
       if (typeof out.points === "number") pointsEl.textContent = out.points;
       if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success"); // 진동 피드백

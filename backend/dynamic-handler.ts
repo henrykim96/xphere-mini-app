@@ -9,9 +9,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const REFERRAL_POINTS = 10;
 const CHECKIN_POINTS = 2;
-function seoulToday() { return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" }); }
-function seoulYesterday() {
-  const d = new Date(seoulToday() + "T00:00:00Z");
+// ★ 데일리 리셋 기준 = UTC 자정 (2026-10-23 서울→UTC로 변경)
+function utcToday() { return new Date().toISOString().slice(0, 10); }
+function utcYesterday() {
+  const d = new Date(utcToday() + "T00:00:00Z");
   d.setUTCDate(d.getUTCDate() - 1);
   return d.toISOString().slice(0, 10);
 }
@@ -95,19 +96,32 @@ Deno.serve(async (req) => {
         await db.from("app_users").update({ name: who.name }).eq("telegram_id", telegram_id); // 이름 최신화
       }
       const { data: comp } = await db.from("completions")
-        .select("mission_id").eq("telegram_id", telegram_id).in("day", [seoulToday(), "2000-01-01"]);
+        .select("mission_id").eq("telegram_id", telegram_id).in("day", [utcToday(), "2000-01-01"]);
       return json({ ok: true, user: u, completions: (comp || []).map((c) => c.mission_id) });
     }
 
     // ===== 출석체크 =====
     if (action === "checkin") {
-      const { data: u } = await db.from("app_users").select("points, streak, last_checkin").eq("telegram_id", telegram_id).maybeSingle();
-      const today = seoulToday();
-      if (u && u.last_checkin === today) return json({ ok: false, reason: "already", points: u.points || 0, streak: u.streak || 0 });
-      const prev = u && u.last_checkin ? u.last_checkin : null;
-      const newStreak = (prev === seoulYesterday()) ? ((u.streak || 0) + 1) : 1; // 연속/리셋
-      const newPoints = (u ? (u.points || 0) : 0) + CHECKIN_POINTS;
-      await db.from("app_users").upsert({ telegram_id, streak: newStreak, last_checkin: today, points: newPoints });
+      let { data: u } = await db.from("app_users").select("points, streak, last_checkin").eq("telegram_id", telegram_id).maybeSingle();
+      if (!u) { // 행이 없으면 먼저 만들어둠 (아래 '조건부 갱신'이 대상 행을 필요로 함)
+        await db.from("app_users").upsert({ telegram_id, name: who.name, points: 0, streak: 0 }, { ignoreDuplicates: true });
+        u = { points: 0, streak: 0, last_checkin: null };
+      }
+      const today = utcToday();
+      if (u.last_checkin === today) return json({ ok: false, reason: "already", points: u.points || 0, streak: u.streak || 0 });
+      const newStreak = (u.last_checkin === utcYesterday()) ? ((u.streak || 0) + 1) : 1; // 연속/리셋
+      const newPoints = (u.points || 0) + CHECKIN_POINTS;
+      // ★ 동시요청 방어: "오늘 출석 안 한 행"만 갱신하는 조건부 UPDATE.
+      //   DB가 한 요청만 통과시키므로, 연타/동시 호출해도 점수가 딱 한 번만 들어감.
+      const { data: claimed } = await db.from("app_users")
+        .update({ streak: newStreak, last_checkin: today, points: newPoints })
+        .eq("telegram_id", telegram_id)
+        .or(`last_checkin.is.null,last_checkin.neq.${today}`)
+        .select("points");
+      if (!claimed || claimed.length === 0) {
+        const { data: cur } = await db.from("app_users").select("points, streak").eq("telegram_id", telegram_id).maybeSingle();
+        return json({ ok: false, reason: "already", points: cur ? cur.points || 0 : 0, streak: cur ? cur.streak || 0 : 0 });
+      }
       return json({ ok: true, points: newPoints, streak: newStreak });
     }
 
@@ -123,8 +137,18 @@ Deno.serve(async (req) => {
         if (w && (!w.startsWith("0x") || w.length < 10)) return json({ ok: false, reason: "bad_wallet" }); // 서버도 검증
         upd.wallet = body.wallet;
       }
+      // 온보딩이 '지금 처음' 완료되는 순간인지 확인 (보상 중복 지급 방지)
+      const { data: before } = await db.from("app_users").select("onboarded, referred_by").eq("telegram_id", telegram_id).maybeSingle();
+      const justOnboarded = body.onboarded === true && !(before && before.onboarded);
       upd.registered_at = new Date().toISOString();
       await db.from("app_users").upsert(upd);
+      // 초대받고 온 유저가 온보딩을 끝냈으면 → 이제서야 추천인에게 보상 + 초대 수 +1
+      if (justOnboarded && before && before.referred_by) {
+        const { data: ref } = await db.from("app_users").select("points, referrals").eq("telegram_id", before.referred_by).maybeSingle();
+        if (ref) {
+          await db.from("app_users").update({ points: (ref.points || 0) + REFERRAL_POINTS, referrals: (ref.referrals || 0) + 1 }).eq("telegram_id", before.referred_by);
+        }
+      }
       return json({ ok: true });
     }
 
@@ -137,7 +161,7 @@ Deno.serve(async (req) => {
         const joined = await isTelegramMember(mission.verify_target, telegram_id);
         if (!joined) return json({ ok: false, reason: "not_joined" });
       }
-      const day = mission.category === "general" ? "2000-01-01" : seoulToday();
+      const day = mission.category === "general" ? "2000-01-01" : utcToday();
       const { error: insErr } = await db.from("completions").insert({ telegram_id, mission_id, day });
       if (insErr) {
         const { data: u } = await db.from("app_users").select("points").eq("telegram_id", telegram_id).maybeSingle();
@@ -154,11 +178,11 @@ Deno.serve(async (req) => {
       if (Number(referrer_id) === Number(telegram_id)) return json({ ok: false, reason: "self" });
       const { data: me } = await db.from("app_users").select("referred_by").eq("telegram_id", telegram_id).maybeSingle();
       if (me && me.referred_by) return json({ ok: false, reason: "already_referred" });
-      const { data: ref } = await db.from("app_users").select("points, referrals").eq("telegram_id", referrer_id).maybeSingle();
+      const { data: ref } = await db.from("app_users").select("telegram_id").eq("telegram_id", referrer_id).maybeSingle();
       if (!ref) return json({ ok: false, reason: "no_referrer" });
+      // ★ 여기선 '누가 초대했는지'만 기록. 보상은 피초대자가 온보딩을 끝낸 뒤(register)에 지급 → 부계정 어뷰징 방지
       await db.from("app_users").upsert({ telegram_id, referred_by: referrer_id });
-      await db.from("app_users").update({ points: (ref.points || 0) + REFERRAL_POINTS, referrals: (ref.referrals || 0) + 1 }).eq("telegram_id", referrer_id);
-      return json({ ok: true, reason: "referred", reward: REFERRAL_POINTS });
+      return json({ ok: true, reason: "referred" });
     }
 
     return json({ ok: false, reason: "no_action" }, 400);
