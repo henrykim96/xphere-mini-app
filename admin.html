@@ -80,7 +80,7 @@
       <div class="tablewrap">
         <table>
           <thead>
-            <tr><th>#</th><th>Name</th><th>Points</th><th>Referrals</th><th>Onboarded</th><th>X</th><th>Discord</th><th>Wallet</th><th>Telegram ID</th></tr>
+            <tr><th>#</th><th>Name</th><th>Points</th><th>Referrals</th><th>Onboarded</th><th>X</th><th>Wallet</th><th>Joined</th><th>Telegram ID</th></tr>
           </thead>
           <tbody id="rows"></tbody>
         </table>
@@ -131,8 +131,9 @@
       const rows = USERS.map(function (u, i) {
         return "<tr><td class='rank'>" + (i + 1) + "</td><td>" + esc(u.name) + "</td><td>" + (u.points || 0) +
           "</td><td>" + (u.referrals || 0) + "</td><td>" + (u.onboarded ? "✓" : "") +
-          "</td><td>" + esc(u.x_handle) + "</td><td>" + esc(u.discord) +
-          "</td><td class='wallet'>" + esc(u.wallet) + "</td><td>" + u.telegram_id + "</td></tr>";
+          "</td><td>" + esc(u.x_handle) +
+          "</td><td class='wallet'>" + esc(u.wallet) + "</td><td>" + (u.created_at ? u.created_at.slice(0, 10) : "") +
+          "</td><td>" + u.telegram_id + "</td></tr>";
       }).join("");
       document.getElementById("rows").innerHTML = rows;
     }
@@ -142,10 +143,10 @@
 
     // CSV 내보내기 (에어드랍 대상 뽑기용)
     function downloadCsv() {
-      const head = "rank,name,points,referrals,x_handle,discord,wallet,telegram_id\n";
+      const head = "rank,name,points,referrals,x_handle,wallet,joined,telegram_id\n";
       const body = USERS.map(function (u, i) {
         return [i + 1, JSON.stringify(u.name || ""), u.points || 0, u.referrals || 0,
-          JSON.stringify(u.x_handle || ""), JSON.stringify(u.discord || ""), u.wallet || "", u.telegram_id].join(",");
+          JSON.stringify(u.x_handle || ""), u.wallet || "", (u.created_at ? u.created_at.slice(0, 10) : ""), u.telegram_id].join(",");
       }).join("\n");
       // 맨 앞 ﻿ = 엑셀에서 한글이 안 깨지게 하는 표시(BOM)
       const blob = new Blob(["﻿" + head + body], { type: "text/csv;charset=utf-8" });

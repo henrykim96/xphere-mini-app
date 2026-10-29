@@ -92,7 +92,11 @@ Deno.serve(async (req) => {
       if (!pw || body.password !== pw) return json({ ok: false, reason: "unauthorized" }, 401);
       const dbA = createClient(Deno.env.get("SUPABASE_URL"), Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"));
       const { data } = await dbA.from("app_users")
-        .select("name, points, referrals, wallet, x_handle, discord, telegram_id, onboarded").order("points", { ascending: false });
+        .select("name, points, referrals, wallet, x_handle, telegram_id, onboarded, created_at")
+        // ★ 순위 규칙: 포인트 높은 순 → 동점이면 먼저 가입한 순 → 그래도 같으면 텔레그램 ID 작은 순(항상 같은 순서가 나오게)
+        .order("points", { ascending: false })
+        .order("created_at", { ascending: true })
+        .order("telegram_id", { ascending: true });
       return json({ ok: true, users: data || [] });
     }
 
