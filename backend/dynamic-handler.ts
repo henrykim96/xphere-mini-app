@@ -8,9 +8,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const REFERRAL_ENABLED = true;  // ★ 초대(레퍼럴) 기능 스위치. 끄려면 false (index.html의 REFERRAL_ENABLED도 같이)
-const REFERRAL_POINTS = 10;
+const REFERRAL_POINTS = 5;       // 초대 1명당 추천인 보상 (2026-10-29: 10 → 5. 미션 점수가 순위를 좌우하도록)
 const REFERRAL_MIN_MISSIONS = 3; // 피초대자가 온보딩 + 미션 이 개수 이상 완료해야 추천인 보상 (부계정 어뷰징 방지)
-const REFERRAL_MAX_PAID = 50;    // 한 사람이 보상받을 수 있는 최대 초대 수 (피해 상한)
+const REFERRAL_MAX_PAID = 20;    // 한 사람이 보상받을 수 있는 최대 초대 수 (2026-10-29: 50 → 20, 최대 100점)
 const CHECKIN_POINTS = 2;
 const REG_DEADLINE_MS = Date.parse("2026-11-30T23:59:59Z"); // ★ 지갑·SNS 등록 마감 (UTC, 한국시간 12/1 08:59). 이후 등록·수정 전부 차단. index.html의 REG_DEADLINE_MS와 같아야 함
 // ★ 데일리 리셋 기준 = UTC 자정 (2026-10-23 서울→UTC로 변경)
