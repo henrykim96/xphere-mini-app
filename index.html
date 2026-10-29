@@ -204,6 +204,20 @@
     .modal-head h2 { margin: 0; font-size: 20px; }
     .modal-close { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; }
     .modal-sub { color: var(--muted); font-size: 13px; margin: 8px 0 18px; line-height: 1.5; }
+    /* 내 초대 현황 (Referrals 모달) */
+    #navRef { cursor: pointer; }
+    .rf-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 6px 0 16px; }
+    .rf-stat { background: rgba(255,255,255,0.04); border: 1px solid var(--line-2); border-radius: 12px; padding: 12px 8px; text-align: center; }
+    .rf-stat b { display: block; font-size: 20px; }
+    .rf-stat span { color: var(--muted); font-size: 11.5px; }
+    .rf-list { display: flex; flex-direction: column; gap: 8px; }
+    .rf-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 11px 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--line-2); border-radius: 12px; }
+    .rf-row b { font-size: 14px; }
+    .rf-row small { display: block; color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+    .rf-chip { font-size: 12px; font-weight: 700; padding: 5px 10px; border-radius: 999px; white-space: nowrap; }
+    .rf-chip.ok { color: var(--green); background: rgba(46,204,113,0.12); }
+    .rf-chip.wait { color: var(--muted); background: rgba(255,255,255,0.06); }
+    .rf-empty { color: var(--muted); text-align: center; padding: 18px 0; font-size: 13px; }
     .field { margin-bottom: 14px; }
     .field-label { font-size: 13px; color: var(--muted); margin-bottom: 6px; display: block; }
     .modal input[type="text"] {
@@ -349,6 +363,24 @@
       </div>
 
       <button class="submit-btn" id="regSubmit">Submit</button>
+    </div>
+  </div>
+
+  <!-- 내 초대 현황 모달 (상단 Referrals 누르면 열림) -->
+  <div class="modal-overlay" id="refModal">
+    <div class="modal">
+      <div class="modal-head">
+        <h2>My Referrals</h2>
+        <button class="modal-close" id="refClose">✕</button>
+      </div>
+      <p class="modal-sub" id="refRule">Invite friends and earn points when they join.</p>
+      <div class="rf-stats">
+        <div class="rf-stat"><b id="rfRewarded">0</b><span>Rewarded</span></div>
+        <div class="rf-stat"><b id="rfPending">0</b><span>In progress</span></div>
+        <div class="rf-stat"><b id="rfPoints">0</b><span>Points earned</span></div>
+      </div>
+      <div class="rf-list" id="rfList"></div>
+      <button class="submit-btn" id="rfCopy" style="margin-top:16px">Copy invite link</button>
     </div>
   </div>
 
@@ -714,6 +746,41 @@
     }
     function closeReg() { document.getElementById("regModal").style.display = "none"; }
 
+    // ===== 내 초대 현황 (상단 Referrals 클릭 시) =====
+    // 열 때마다 서버에서 최신 상태를 받아옴 (친구가 미션을 더 했을 수 있으니)
+    async function openRef() {
+      document.getElementById("refModal").style.display = "flex";
+      const list = document.getElementById("rfList");
+      list.innerHTML = '<div class="rf-empty">Loading...</div>';
+      const out = await callApi({ action: "my_referrals" });
+      if (!out || !out.ok) { list.innerHTML = '<div class="rf-empty">Failed to load. Please try again.</div>'; return; }
+      document.getElementById("refRule").textContent =
+        "Earn +" + out.reward + " Points when a friend joins, finishes setup and completes " + out.need_missions +
+        " missions (up to " + out.max + " friends).";
+      document.getElementById("rfRewarded").textContent = out.rewarded;
+      document.getElementById("rfPending").textContent = out.pending;
+      document.getElementById("rfPoints").textContent = out.rewarded * out.reward;
+      myReferrals = out.rewarded;                                   // 상단 숫자도 최신으로
+      const nr = document.getElementById("navRef");
+      if (nr) nr.textContent = "Referrals (" + myReferrals + ")";
+      list.innerHTML = "";
+      if (!out.list.length) { list.innerHTML = '<div class="rf-empty">No friends invited yet. Share your link!</div>'; return; }
+      out.list.forEach(function (f) {
+        const row = document.createElement("div"); row.className = "rf-row";
+        const left = document.createElement("div");
+        const nm = document.createElement("b"); nm.textContent = f.name || "Friend";     // textContent = 이름에 HTML이 있어도 안전
+        const sub = document.createElement("small");
+        sub.textContent = f.paid ? "Completed"
+          : (f.onboarded ? "Setup done" : "Setup pending") + " · Missions " + Math.min(f.missions, out.need_missions) + "/" + out.need_missions;
+        left.appendChild(nm); left.appendChild(sub);
+        const chip = document.createElement("span");
+        chip.className = "rf-chip " + (f.paid ? "ok" : "wait");
+        chip.textContent = f.paid ? "Completed" : "In progress";
+        row.appendChild(left); row.appendChild(chip); list.appendChild(row);
+      });
+    }
+    function closeRef() { document.getElementById("refModal").style.display = "none"; }
+
     // 폼 저장 — 입력값 확인 후 DB에 저장
     async function submitReg() {
       const agreed   = document.getElementById("regAgree").checked;
@@ -739,6 +806,11 @@
       if (b) b.addEventListener("click", openReg);
       if (c) c.addEventListener("click", closeReg);
       if (s) s.addEventListener("click", submitReg);
+      // 내 초대 현황 (상단 Referrals 메뉴)
+      const nr = document.getElementById("navRef"), rc = document.getElementById("refClose"), rcp = document.getElementById("rfCopy");
+      if (nr) nr.addEventListener("click", openRef);
+      if (rc) rc.addEventListener("click", closeRef);
+      if (rcp) rcp.addEventListener("click", copyRef);
     }
 
     // ===== 온보딩 (신규 유저 최초 1회 단계별 설정) =====

@@ -119,6 +119,39 @@ Deno.serve(async (req) => {
       return json({ ok: true, user: u, completions: (comp || []).map((c) => c.mission_id) });
     }
 
+    // ===== 내 초대 현황 (상단 Referrals 클릭 시) =====
+    //  내가 초대한 친구 목록 + 각자 진행 상황(온보딩·미션 개수·보상 완료 여부). 읽기만 함.
+    if (action === "my_referrals") {
+      const { data: me } = await db.from("app_users").select("referrals").eq("telegram_id", telegram_id).maybeSingle();
+      const { data: kids } = await db.from("app_users")
+        .select("telegram_id, name, onboarded, referral_paid, created_at")
+        .eq("referred_by", telegram_id).order("created_at", { ascending: false }).limit(100);
+      const rows = kids || [];
+      // 아직 보상 안 나간 친구만 미션 개수를 셈 (보상 완료자는 이미 조건 충족)
+      const waitIds = rows.filter((k) => !k.referral_paid).map((k) => k.telegram_id);
+      const counts = {};
+      if (waitIds.length) {
+        const { data: comp } = await db.from("completions").select("telegram_id").in("telegram_id", waitIds);
+        (comp || []).forEach((c) => { counts[c.telegram_id] = (counts[c.telegram_id] || 0) + 1; });
+      }
+      const list = rows.map((k) => ({
+        name: k.name || "Friend",
+        onboarded: !!k.onboarded,
+        paid: !!k.referral_paid,
+        missions: counts[k.telegram_id] || 0,
+      }));
+      return json({
+        ok: true,
+        enabled: REFERRAL_ENABLED,
+        reward: REFERRAL_POINTS,
+        need_missions: REFERRAL_MIN_MISSIONS,
+        max: REFERRAL_MAX_PAID,
+        rewarded: (me && me.referrals) || 0,      // 실제 보상이 나간 초대 수 (상한 반영)
+        pending: list.filter((x) => !x.paid).length,
+        list,
+      });
+    }
+
     // ===== 출석체크 =====
     if (action === "checkin") {
       let { data: u } = await db.from("app_users").select("points, streak, last_checkin").eq("telegram_id", telegram_id).maybeSingle();
