@@ -818,6 +818,8 @@
       if (r === "wallet_taken") return "This wallet is already registered to another account.";
       if (r === "bad_x")        return "Invalid X handle. Use letters, numbers and underscore only (up to 15 characters).";
       if (r === "x_taken")      return "This X handle is already registered to another account.";
+      if (r === "x_locked")     return "Your X handle is locked after verification.";
+      if (r === "repost_required") return "Please repost our tweet to continue.";
       return "Failed to save. Please try again.";
     }
 
@@ -913,7 +915,7 @@
     const OB_STEPS = [
       { title: "Welcome to Xphere Airdrop", sub: "Complete a quick setup to join the airdrop.",  type: "agree" },
       { title: "Connect your X account",    sub: "Enter your X (Twitter) handle to continue.",    type: "xconnect", url: OB_LINKS.x },
-      { title: "Repost & Like our post",    sub: "Open the post, then repost and like it.",       type: "task", url: OB_LINKS.post,     action: "Open post", verifyMs: 40000 }, // verifyMs: Next 누르면 이 시간(ms) 동안 "Verifying…" 연출 (실제 확인 아님 — 나중에 X API 확인으로 교체)
+      { title: "Repost & Like our post",    sub: "Open the post, then repost and like it.",       type: "task", url: OB_LINKS.post,     action: "Open post", verifyMs: 40000, repost: true }, // verifyMs: Next 누르면 이 시간(ms) 동안 "Verifying…" 연출 (실제 확인 아님 — 나중에 X API 확인으로 교체)
       { title: "You're all set!",           sub: "Start completing missions and earn points.",    type: "done" },
     ];
     let obIndex = 0;
@@ -984,13 +986,38 @@
         let n = 0;
         const dotTimer = setInterval(function () { n = (n + 1) % 4; btn.textContent = "Verifying" + ".".repeat(n); }, 400);
         btn.textContent = "Verifying";
-        await new Promise(function (r) { setTimeout(r, s.verifyMs); });
+        // 서버에 X API 가 설정돼 있으면 실제로 리포스트를 확인, 아니면("disabled") 기존처럼 verifyMs 동안 연출만
+        let out = null;
+        if (s.repost) out = await callApi({ action: "verify_repost", x_handle: obData.x_handle });
+        if (!out || out.reason === "disabled") await new Promise(function (r) { setTimeout(r, s.verifyMs); });
         clearInterval(dotTimer);
-        btn.disabled = false; btn.style.opacity = "";
+        btn.disabled = false; btn.style.opacity = ""; btn.textContent = "Next";
         obVerifying = false;
+        if (out && out.reason !== "disabled" && !out.ok) { repostFail(out); return; }   // 못 찾음·한도 초과 등 → 이 단계에 머물기
       }
       if (obIndex < OB_STEPS.length - 1) { obIndex++; renderOb(); }
       else { await finishOb(); }
+    }
+
+    // 리포스트 확인 실패 시 안내 (서버가 돌려준 reason 에 따라)
+    function obGoToStep(type) {
+      const i = OB_STEPS.findIndex(function (st) { return type === "repost" ? !!st.repost : st.type === type; });
+      if (i >= 0) { obIndex = i; renderOb(); }
+    }
+    function repostFail(out) {
+      const r = out.reason;
+      if (r === "not_found") {
+        uiAlert("We couldn't find your repost yet. Please repost the tweet, wait a moment, then try again." +
+          (typeof out.left === "number" ? " (" + out.left + " tries left today)" : ""));
+        return;
+      }
+      if (r === "limit") { uiAlert("Too many attempts today. Please try again tomorrow."); return; }
+      if (r === "no_account" || r === "bad_x" || r === "x_taken") {           // X 핸들 문제 → X 핸들 입력 단계로 되돌림
+        uiAlert(r === "no_account" ? "We couldn't find this X account. Please check your handle." : regErrorMsg(out), focusObInput);
+        obGoToStep("xconnect");
+        return;
+      }
+      uiAlert("Verification failed. Please try again.");
     }
 
     // 온보딩 완료 — DB에 저장 + 완료표시 + 메인으로
@@ -1002,6 +1029,8 @@
         if (out && (out.reason === "x_taken" || out.reason === "bad_x")) {
           const i = OB_STEPS.findIndex(function (st) { return st.type === "xconnect"; });
           obIndex = i < 0 ? 0 : i; renderOb();
+        } else if (out && out.reason === "repost_required") {
+          obGoToStep("repost");                       // 리포스트 확인을 건너뛴 경우 → 그 단계로 되돌림
         }
         return;
       }

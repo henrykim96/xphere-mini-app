@@ -139,3 +139,18 @@ select x_handle, count(*) from app_users where x_handle is not null group by 1 h
 -- 3) 중복 방지 인덱스 (이름은 서버 코드가 오류를 알아보는 데 쓰므로 바꾸지 말 것)
 create unique index if not exists app_users_wallet_uniq  on app_users (lower(wallet)) where wallet is not null;
 create unique index if not exists app_users_xhandle_uniq on app_users (x_handle)      where x_handle is not null;
+
+
+-- ============================================================
+--  2026-10-29 추가 — X 리포스트 검증(X API)용 열
+-- ------------------------------------------------------------
+--  ★ 서버(dynamic-handler)를 배포하기 '전에' 먼저 실행 (관리자 화면도 이 열을 읽음)
+--  x_user_id        : X 계정 번호 (핸들은 바꿀 수 있어도 번호는 그대로 → 1인 1계정 판단)
+--  x_repost_status  : 'verified'(리포스트 확인됨) / 'skipped'(API 장애로 통과, 지급 전 점검 대상) / NULL(미확인)
+--  x_check_count/day: 하루 시도 횟수 제한(비용 상한)
+-- ============================================================
+alter table app_users add column if not exists x_user_id text;
+alter table app_users add column if not exists x_repost_status text;
+alter table app_users add column if not exists x_check_count integer default 0;
+alter table app_users add column if not exists x_check_day date;
+create unique index if not exists app_users_xuserid_uniq on app_users (x_user_id) where x_user_id is not null;
