@@ -118,3 +118,24 @@ insert into missions (title, points, link, category, sort_order) values
 
 -- ▶ 유저 순위 보기 (포인트 높은 순) — 나중에 에어드랍 대상 뽑을 때
 -- select telegram_id, name, points from app_users order by points desc;
+
+
+-- ============================================================
+--  2026-10-29 추가 — 지갑·X 핸들 '1인 1계정' (중복 방지)
+-- ------------------------------------------------------------
+--  Supabase → SQL Editor 에서 1)→2)→3) 순서로 실행 (딱 1번)
+--  서버(dynamic-handler)도 저장 전에 중복을 확인하지만, 이 인덱스는
+--  '동시에 같은 값을 저장'하는 경우까지 DB가 마지막으로 막아줌.
+-- ============================================================
+
+-- 1) 기존 값 정리: X 핸들은 앞의 @ 제거 + 소문자 + 빈 값은 NULL, 지갑은 공백 제거 + 빈 값은 NULL
+update app_users set x_handle = nullif(lower(regexp_replace(trim(x_handle), '^@+', '')), '') where x_handle is not null;
+update app_users set wallet   = nullif(trim(wallet), '') where wallet is not null;
+
+-- 2) 중복 확인 — 아래 두 개가 '결과 없음(0행)'이어야 3)이 성공함. 행이 나오면 그 계정들 값을 먼저 정리
+select lower(wallet) as wallet, count(*) from app_users where wallet is not null group by 1 having count(*) > 1;
+select x_handle, count(*) from app_users where x_handle is not null group by 1 having count(*) > 1;
+
+-- 3) 중복 방지 인덱스 (이름은 서버 코드가 오류를 알아보는 데 쓰므로 바꾸지 말 것)
+create unique index if not exists app_users_wallet_uniq  on app_users (lower(wallet)) where wallet is not null;
+create unique index if not exists app_users_xhandle_uniq on app_users (x_handle)      where x_handle is not null;

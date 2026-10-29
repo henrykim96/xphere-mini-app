@@ -12,6 +12,7 @@ const REFERRAL_POINTS = 10;
 const REFERRAL_MIN_MISSIONS = 3; // 피초대자가 온보딩 + 미션 이 개수 이상 완료해야 추천인 보상 (부계정 어뷰징 방지)
 const REFERRAL_MAX_PAID = 50;    // 한 사람이 보상받을 수 있는 최대 초대 수 (피해 상한)
 const CHECKIN_POINTS = 2;
+const REG_DEADLINE_MS = Date.parse("2026-11-30T23:59:59Z"); // ★ 지갑·SNS 등록 마감 (UTC, 한국시간 12/1 08:59). 이후 등록·수정 전부 차단. index.html의 REG_DEADLINE_MS와 같아야 함
 // ★ 데일리 리셋 기준 = UTC 자정 (2026-10-23 서울→UTC로 변경)
 function utcToday() { return new Date().toISOString().slice(0, 10); }
 function utcYesterday() {
@@ -179,18 +180,38 @@ Deno.serve(async (req) => {
 
     // ===== 등록/온보딩 저장 =====
     if (action === "register") {
+      if (Date.now() > REG_DEADLINE_MS) return json({ ok: false, reason: "closed" }); // ★ 마감 후엔 수정도 불가
       const upd = { telegram_id };
       if (body.discord !== undefined) upd.discord = body.discord;
-      if (body.x_handle !== undefined) upd.x_handle = body.x_handle;
+      if (body.x_handle !== undefined) {
+        // X 핸들 정리: 앞의 @ 제거 + 소문자 (X 핸들은 대소문자 구분이 없음) + 형식 확인(영문·숫자·_ 최대 15자)
+        const x = String(body.x_handle || "").trim().replace(/^@+/, "").toLowerCase();
+        if (x && !/^[a-z0-9_]{1,15}$/.test(x)) return json({ ok: false, reason: "bad_x" });
+        if (x) { // 다른 계정이 이미 쓰는 핸들이면 거절 (1인 1계정 방지)
+          const { data: dupX } = await db.from("app_users").select("telegram_id").eq("x_handle", x).neq("telegram_id", telegram_id).limit(1);
+          if (dupX && dupX.length) return json({ ok: false, reason: "x_taken" });
+        }
+        upd.x_handle = x || null;
+      }
       if (body.agreed !== undefined) upd.agreed = body.agreed;
       if (body.onboarded !== undefined) upd.onboarded = body.onboarded;
       if (body.wallet !== undefined) {
-        const w = String(body.wallet || "");
-        if (w && (!w.startsWith("0x") || w.length < 10)) return json({ ok: false, reason: "bad_wallet" }); // 서버도 검증
-        upd.wallet = body.wallet;
+        const w = String(body.wallet || "").trim();
+        if (w && !/^0x[a-fA-F0-9]{40}$/.test(w)) return json({ ok: false, reason: "bad_wallet" }); // EVM 주소 형식(0x + 40자리 16진수) 엄격 검증
+        if (w) { // 다른 계정이 이미 쓰는 지갑이면 거절 (대소문자 무시, 지갑은 16진수라 ilike 안전)
+          const { data: dupW } = await db.from("app_users").select("telegram_id").ilike("wallet", w).neq("telegram_id", telegram_id).limit(1);
+          if (dupW && dupW.length) return json({ ok: false, reason: "wallet_taken" });
+        }
+        upd.wallet = w || null;
       }
       upd.registered_at = new Date().toISOString();
-      await db.from("app_users").upsert(upd);
+      const { error: upErr } = await db.from("app_users").upsert(upd);
+      if (upErr) { // DB의 유일(unique) 인덱스가 마지막으로 막아줌 (동시에 같은 값을 저장하려는 경우)
+        const m = String(upErr.message || "");
+        if (m.includes("app_users_wallet_uniq")) return json({ ok: false, reason: "wallet_taken" });
+        if (m.includes("app_users_xhandle_uniq")) return json({ ok: false, reason: "x_taken" });
+        return json({ ok: false, reason: "error", detail: m }, 500);
+      }
       await tryPayReferral(db, telegram_id); // 온보딩 완료로 초대 보상 조건이 채워졌을 수 있음
       return json({ ok: true });
     }
