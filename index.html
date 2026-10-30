@@ -919,12 +919,20 @@
       telegram: "https://t.me/Xphere_official",                               // 텔레그램
       discord:  "https://discord.com/invite/xphere",                          // 디스코드
     };
+    // 답글 작성 링크: 누르면 X 에서 '홍보 트윗에 답글' 작성창이 미리 채워진 채로 열림 → 유저는 Post 만 누르면 됨 (검증은 안 함)
+    const OB_REPLY_TEXT = "Just joined the @Xphere_official airdrop! 🚀";   // 미리 채워둘 답글 문구 (유저가 고쳐도 됨)
+    const obPostId = (OB_LINKS.post.match(/status\/(\d+)/) || [])[1];
+    OB_LINKS.reply = obPostId
+      ? "https://x.com/intent/post?in_reply_to=" + obPostId + "&text=" + encodeURIComponent(OB_REPLY_TEXT)
+      : OB_LINKS.post;
     const OB_STEPS = [
       { title: "Welcome to Xphere Airdrop", sub: "Complete a quick setup to join the airdrop.",  type: "agree" },
       { title: "Connect your X account",    sub: "Enter your X (Twitter) handle to continue.",    type: "xconnect", url: OB_LINKS.x },
       // 팔로우는 '안내만' (프로필을 열어야 Next 가능, 실제 팔로우 여부는 검증하지 않음 — 확인하려면 X API 호출 비용이 추가됨)
       { title: "Follow @Xphere_official",   sub: "Open our X profile and follow us.",             type: "task", url: OB_LINKS.x,        action: "Follow @Xphere_official" },
       { title: "Repost & Like our post",    sub: "Open the post, then repost and like it.",     type: "task", url: OB_LINKS.post,     action: "Open post", verifyMs: 40000, repost: true }, // verifyMs: Next 누르면 이 시간(ms) 동안 "Verifying…" 연출 (실제 확인 아님 — 나중에 X API 확인으로 교체)
+      // 답글은 '안내만' (버튼을 열어 OB_TASK_WAIT_SEC 초 지나야 Next 가능, 실제 답글 여부는 검증하지 않음 — 확인하면 X API 비용이 큼)
+      { title: "Comment on our post",       sub: "Reply to the post, then come back.",            type: "task", url: OB_LINKS.reply,   action: "Write a comment" },
       { title: "You're all set!",           sub: "Start completing missions and earn points.",    type: "done" },
     ];
     let obIndex = 0;
