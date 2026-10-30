@@ -919,20 +919,24 @@
       telegram: "https://t.me/Xphere_official",                               // 텔레그램
       discord:  "https://discord.com/invite/xphere",                          // 디스코드
     };
-    // 답글 작성 링크: 누르면 X 에서 '홍보 트윗에 답글' 작성창이 미리 채워진 채로 열림 → 유저는 Post 만 누르면 됨 (검증은 안 함)
-    const OB_REPLY_TEXT = "Just joined the @Xphere_official airdrop! 🚀";   // 미리 채워둘 답글 문구 (유저가 고쳐도 됨)
-    const obPostId = (OB_LINKS.post.match(/status\/(\d+)/) || [])[1];
-    OB_LINKS.reply = obPostId
-      ? "https://x.com/intent/post?in_reply_to=" + obPostId + "&text=" + encodeURIComponent(OB_REPLY_TEXT)
-      : OB_LINKS.post;
+    // 홍보 게시물 작성 링크: 누르면 X 글쓰기 창이 '에어드랍 이벤트 홍보 문구 + Xphere X 링크'로 미리 채워져 열림 → 유저는 Post 만 누르면 됨 (검증은 안 함)
+    // ※ X 의 in_reply_to 는 현재 무시되어 '답글'이 아니라 새 게시물로 올라감 → 그래서 답글이 아니라 홍보 게시물로 운영
+    // 문구는 아래 중 하나가 무작위로 채워짐 (같은 문장이 반복되면 스팸으로 분류될 수 있어서). 유저가 고쳐도 됨, 링크는 따로 붙음. 추가·삭제 자유
+    const OB_SHARE_TEXTS = [
+      "@Xphere_official is running an airdrop event right now. Check it out!",
+      "Xphere's airdrop event is live! 🪂 Join in and earn points. Details here @Xphere_official",
+      "Don't miss the @Xphere_official airdrop event happening now 👀",
+    ];
+    const obShareText = OB_SHARE_TEXTS[Math.floor(Math.random() * OB_SHARE_TEXTS.length)];
+    OB_LINKS.share = "https://x.com/intent/post?text=" + encodeURIComponent(obShareText) + "&url=" + encodeURIComponent(OB_LINKS.x);   // 링크를 이벤트 트윗으로 바꾸려면 OB_LINKS.x → OB_LINKS.post
     const OB_STEPS = [
       { title: "Welcome to Xphere Airdrop", sub: "Complete a quick setup to join the airdrop.",  type: "agree" },
       { title: "Connect your X account",    sub: "Enter your X (Twitter) handle to continue.",    type: "xconnect", url: OB_LINKS.x },
       // 팔로우는 '안내만' (프로필을 열어야 Next 가능, 실제 팔로우 여부는 검증하지 않음 — 확인하려면 X API 호출 비용이 추가됨)
       { title: "Follow @Xphere_official",   sub: "Open our X profile and follow us.",             type: "task", url: OB_LINKS.x,        action: "Follow @Xphere_official" },
       { title: "Repost & Like our post",    sub: "Open the post, then repost and like it.",     type: "task", url: OB_LINKS.post,     action: "Open post", verifyMs: 40000, repost: true }, // verifyMs: Next 누르면 이 시간(ms) 동안 "Verifying…" 연출 (실제 확인 아님 — 나중에 X API 확인으로 교체)
-      // 답글은 '안내만' (버튼을 열어 OB_TASK_WAIT_SEC 초 지나야 Next 가능, 실제 답글 여부는 검증하지 않음 — 확인하면 X API 비용이 큼)
-      { title: "Comment on our post",       sub: "Reply to the post, then come back.",            type: "task", url: OB_LINKS.reply,   action: "Write a comment" },
+      // 홍보 게시물은 '안내만' (버튼을 열어 OB_TASK_WAIT_SEC 초 지나야 Next 가능, 실제 게시 여부는 검증하지 않음 — 확인하면 X API 비용이 큼)
+      { title: "Share on X",                sub: "Post about the airdrop to spread the word.",    type: "task", url: OB_LINKS.share,   action: "Share on X" },
       { title: "You're all set!",           sub: "Start completing missions and earn points.",    type: "done" },
     ];
     let obIndex = 0;
@@ -1214,6 +1218,6 @@
     }
     init().finally(hideSplash);   // 시작! (성공/실패와 상관없이 끝나면 스플래시 걷어냄)
   </script>
-<!-- build 2026-10-30: onboarding steps = agree, xconnect, follow, repost, comment, done -->
+<!-- build 2026-10-30b: onboarding steps = agree, xconnect, follow, repost, share, done -->
 </body>
 </html>
