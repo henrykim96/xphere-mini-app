@@ -154,3 +154,19 @@ alter table app_users add column if not exists x_repost_status text;
 alter table app_users add column if not exists x_check_count integer default 0;
 alter table app_users add column if not exists x_check_day date;
 create unique index if not exists app_users_xuserid_uniq on app_users (x_user_id) where x_user_id is not null;
+
+
+-- ============================================================
+--  X 연동(OAuth 로그인)용  (2026-10-29)
+--  ★ SQL Editor 에서 '서버 코드 배포 전에' 실행. 여러 번 실행해도 안전.
+-- ============================================================
+alter table app_users add column if not exists x_connected boolean default false;  -- X 로그인으로 연동된 계정인지
+
+-- 연동 진행 중인 1회용 기록 (state = 시도 식별자, verifier = PKCE 검증값). 서버만 접근.
+create table if not exists x_oauth (
+  state       text primary key,
+  telegram_id bigint not null,
+  verifier    text not null,
+  created_at  timestamptz default now()
+);
+alter table x_oauth enable row level security;   -- 정책 없음 = 클라이언트 접근 불가, 서버(service role)만 가능

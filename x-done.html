@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Xphere · X Connection</title>
+  <style>
+    /* X 연동 후 브라우저에 보이는 안내 페이지 (결과는 ?s= 값으로 전달: ok / denied / taken / locked / expired / error) */
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #f5eef0;
+      background: radial-gradient(120% 60% at 80% -5%, rgba(225,29,42,0.22), transparent 55%), linear-gradient(180deg, #0f0a0c, #0a0507); }
+    .card { max-width: 360px; width: 100%; text-align: center; background: rgba(30,18,22,0.55);
+      border: 1px solid rgba(225,29,42,0.18); border-radius: 16px; padding: 32px 24px; }
+    .icon { font-size: 44px; margin-bottom: 12px; }
+    h1 { font-size: 20px; margin: 0 0 8px; }
+    p { color: #9a8a8e; font-size: 14px; line-height: 1.5; margin: 0 0 20px; }
+    a { display: inline-block; padding: 12px 22px; border-radius: 10px; font-weight: 700; text-decoration: none;
+      color: #fff; background: linear-gradient(90deg, #e11d2a, #8f0f1a); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon" id="icon"></div>
+    <h1 id="title"></h1>
+    <p id="msg"></p>
+    <a href="tg://">Open Telegram</a>
+  </div>
+  <script>
+    var MSG = {
+      ok:      ["✅", "X account connected", "You're all set. Go back to Telegram and tap Next to continue."],
+      denied:  ["⚠️", "Connection cancelled", "You didn't authorize the connection. Go back to Telegram and try again."],
+      taken:   ["⚠️", "Account already in use", "This X account is already connected to another Telegram account. Please use a different X account."],
+      locked:  ["⚠️", "Account locked", "Your X account was already verified and can't be changed."],
+      expired: ["⚠️", "Link expired", "This connection attempt expired. Go back to Telegram and start again."],
+      error:   ["⚠️", "Something went wrong", "We couldn't connect your X account. Go back to Telegram and try again."]
+    };
+    var s = new URLSearchParams(location.search).get("s");
+    var m = MSG[s] || MSG.error;
+    document.getElementById("icon").textContent = m[0];
+    document.getElementById("title").textContent = m[1];
+    document.getElementById("msg").textContent = m[2];
+  </script>
+</body>
+</html>

@@ -524,6 +524,8 @@
     const doneToday = new Set();             // 이미 완료한 미션 id 모음 (오늘분 + 영구분)
     let myStreak = 0, myLastCheckin = null;
     let myReg = { discord: "", wallet: "", x_handle: "", agreed: false }; // 등록정보
+    let xOauth = false;       // 서버에 X 연동(OAuth)이 켜져 있는지 (load_user 응답). 켜져 있으면 핸들 입력 대신 'Connect X'
+    let myXConnected = false; // 내가 X 연동을 마쳤는지
     let myOnboarded = false; // 온보딩 완료 여부
     let myReferredBy = null, myReferrals = 0; // 추천 정보  // 연속출석 일수 / 마지막 출석 날짜
 
@@ -555,6 +557,8 @@
       myLastCheckin = data.last_checkin || null;
       myReg = { discord: data.discord || "", wallet: data.wallet || "", x_handle: data.x_handle || "", agreed: !!data.agreed };
       myOnboarded = !!data.onboarded; // 온보딩(최초설정) 완료 여부
+      xOauth = !!out.oauth;           // X 연동 방식 사용 여부
+      myXConnected = !!data.x_connected;
       myReferredBy = data.referred_by || null;   // 나를 초대한 사람
       myReferrals  = data.referrals || 0;        // 내가 초대한 사람 수
       const nr = document.getElementById("navRef");
@@ -820,6 +824,7 @@
       if (r === "x_taken")      return "This X handle is already registered to another account.";
       if (r === "x_locked")     return "Your X handle is locked after verification.";
       if (r === "repost_required") return "Please repost our tweet to continue.";
+      if (r === "x_not_connected") return "Please connect your X account to continue.";
       return "Failed to save. Please try again.";
     }
 
@@ -827,7 +832,9 @@
       renderRegState();
       document.getElementById("regAgree").checked = !!myReg.agreed;
       document.getElementById("regWallet").value = myReg.wallet || "";
-      document.getElementById("regX").value = myReg.x_handle || "";
+      const rx = document.getElementById("regX");
+      rx.value = myReg.x_handle || "";
+      if (xOauth) { rx.readOnly = true; rx.placeholder = "Connected in setup"; }   // X 연동 방식이면 핸들은 수정 불가
       document.getElementById("regModal").style.display = "flex";
     }
     function closeReg() { document.getElementById("regModal").style.display = "none"; }
@@ -915,7 +922,7 @@
     const OB_STEPS = [
       { title: "Welcome to Xphere Airdrop", sub: "Complete a quick setup to join the airdrop.",  type: "agree" },
       { title: "Connect your X account",    sub: "Enter your X (Twitter) handle to continue.",    type: "xconnect", url: OB_LINKS.x },
-      { title: "Repost & Like our post",    sub: "Open the post, then repost and like it.",       type: "task", url: OB_LINKS.post,     action: "Open post", verifyMs: 40000, repost: true }, // verifyMs: Next 누르면 이 시간(ms) 동안 "Verifying…" 연출 (실제 확인 아님 — 나중에 X API 확인으로 교체)
+      { title: "Repost & Like our post",    sub: "Open the post, then repost and like it.",     type: "task", url: OB_LINKS.post,     action: "Open post", verifyMs: 40000, repost: true }, // verifyMs: Next 누르면 이 시간(ms) 동안 "Verifying…" 연출 (실제 확인 아님 — 나중에 X API 확인으로 교체)
       { title: "You're all set!",           sub: "Start completing missions and earn points.",    type: "done" },
     ];
     let obIndex = 0;
@@ -925,7 +932,7 @@
     function renderOb() {
       const s = OB_STEPS[obIndex];
       document.getElementById("obTitle").textContent = s.title;
-      document.getElementById("obSub").textContent = s.sub;
+      document.getElementById("obSub").textContent = (s.type === "xconnect" && xOauth) ? "Sign in with X to verify it's your account." : s.sub;
       const body = document.getElementById("obBody");
       body.innerHTML = "";
       if (s.type === "agree") {
@@ -936,6 +943,24 @@
         const cb = label.querySelector("#obAgree");
         cb.checked = obData.agreed;
         cb.addEventListener("change", function (e) { obData.agreed = e.target.checked; });
+      } else if (s.type === "xconnect" && xOauth) {
+        // X 로그인 연동: 버튼 → X 승인 화면(외부 브라우저) → 돌아오면 자동으로 '연결됨' 표시. 연동 전엔 Next 불가
+        const btn = document.createElement("button");
+        btn.className = "ob-open";
+        if (myXConnected) {
+          btn.textContent = "✓ Connected" + (obData.x_handle ? " as @" + obData.x_handle : "");
+          btn.disabled = true;
+        } else {
+          btn.textContent = "Connect X ↗";
+          btn.addEventListener("click", startXConnect);
+        }
+        body.appendChild(btn);
+        if (!myXConnected) {
+          const hint = document.createElement("div");
+          hint.style.cssText = "margin-top:10px;font-size:12px;color:#9a8a8e;text-align:center";
+          hint.textContent = "After you authorize in your browser, come back here.";
+          body.appendChild(hint);
+        }
       } else if (s.type === "xconnect") {
         // X 프로필 열기 버튼 (지금은 트위터 API 없이 '열기'만)
         const open = document.createElement("button");
@@ -971,7 +996,10 @@
       if (obVerifying) return;
       const s = OB_STEPS[obIndex];
       if (s.type === "agree" && !obData.agreed) { uiAlert("Please check \"I understand and agree\" first."); return; }
-      if (s.type === "xconnect") {
+      if (s.type === "xconnect" && xOauth) {
+        if (!myXConnected) await checkXConnected();       // 방금 연동했을 수 있으니 한 번 더 확인
+        if (!myXConnected) { uiAlert("Please connect your X account to continue."); return; }
+      } else if (s.type === "xconnect") {
         const xh = (obData.x_handle || "").trim().replace(/^@+/, "").toLowerCase();   // @ 제거 + 소문자
         if (!xh) { uiAlert("Please enter your X handle.", focusObInput); return; }
         if (!/^[a-z0-9_]{1,15}$/.test(xh)) { uiAlert(regErrorMsg({ reason: "bad_x" }), focusObInput); return; }
@@ -999,6 +1027,35 @@
       else { await finishOb(); }
     }
 
+    // ===== X 연동 (xOauth 켜졌을 때) =====
+    let xPollTimer = null;
+    async function startXConnect() {
+      const out = await callApi({ action: "x_oauth_start" });
+      if (!out || !out.ok) { uiAlert(out && out.reason === "x_locked" ? regErrorMsg(out) : "Couldn't start the X connection. Please try again."); return; }
+      if (tg && tg.openLink) tg.openLink(out.url); else window.open(out.url, "_blank");   // 외부 브라우저에서 X 승인
+      startXPoll();
+    }
+    function stopXPoll() { if (xPollTimer) { clearInterval(xPollTimer); xPollTimer = null; } }
+    function startXPoll() {                                  // 승인하고 돌아올 때까지 3초마다 확인 (최대 3분)
+      stopXPoll();
+      const t0 = Date.now();
+      xPollTimer = setInterval(function () {
+        if (Date.now() - t0 > 180000) { stopXPoll(); return; }
+        checkXConnected();
+      }, 3000);
+    }
+    async function checkXConnected() {
+      const out = await callApi({ action: "x_oauth_status" });
+      if (out && out.ok && out.connected) {
+        stopXPoll();
+        myXConnected = true;
+        obData.x_handle = out.x_handle || "";
+        myReg.x_handle = obData.x_handle;
+        if (OB_STEPS[obIndex] && OB_STEPS[obIndex].type === "xconnect") renderOb();
+      }
+    }
+    document.addEventListener("visibilitychange", function () { if (!document.hidden && xPollTimer) checkXConnected(); }); // 앱으로 돌아오면 바로 확인
+
     // 리포스트 확인 실패 시 안내 (서버가 돌려준 reason 에 따라)
     function obGoToStep(type) {
       const i = OB_STEPS.findIndex(function (st) { return type === "repost" ? !!st.repost : st.type === type; });
@@ -1012,6 +1069,7 @@
         return;
       }
       if (r === "limit") { uiAlert("Too many attempts today. Please try again tomorrow."); return; }
+      if (r === "x_not_connected") { myXConnected = false; uiAlert(regErrorMsg(out)); obGoToStep("xconnect"); return; }
       if (r === "no_account" || r === "bad_x" || r === "x_taken") {           // X 핸들 문제 → X 핸들 입력 단계로 되돌림
         uiAlert(r === "no_account" ? "We couldn't find this X account. Please check your handle." : regErrorMsg(out), focusObInput);
         obGoToStep("xconnect");
@@ -1031,6 +1089,8 @@
           obIndex = i < 0 ? 0 : i; renderOb();
         } else if (out && out.reason === "repost_required") {
           obGoToStep("repost");                       // 리포스트 확인을 건너뛴 경우 → 그 단계로 되돌림
+        } else if (out && out.reason === "x_not_connected") {
+          myXConnected = false; obGoToStep("xconnect"); // X 연동을 건너뛴 경우 → 그 단계로 되돌림
         }
         return;
       }
@@ -1045,6 +1105,7 @@
       const obLogo = document.getElementById("obLogo");
       if (main && obLogo) obLogo.src = main.src;
       obIndex = 0;
+      if (xOauth && myReg.x_handle) obData.x_handle = myReg.x_handle;   // 이미 연동한 유저가 다시 열었을 때 표시용
       renderOb();
       document.getElementById("obOverlay").style.display = "flex";
     }

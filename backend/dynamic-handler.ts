@@ -81,10 +81,14 @@ async function isTelegramMember(channel, userId) {
 //  X(트위터) 리포스트 검증 — X API
 //  ★ Supabase Secrets 에 X_BEARER_TOKEN 과 X_CAMPAIGN_TWEET_ID(홍보 트윗 번호)가 둘 다 있을 때만 켜짐.
 //    없으면 verify_repost 는 "disabled" 를 돌려주고, 화면은 기존 40초 연출로 동작.
-//  방식: 입력한 핸들 → 계정 번호 조회 → 그 계정의 최근 게시물 10개에서 홍보 트윗 리포스트 찾기
+//  방식: 입력한 핸들 → 계정 번호 조회 → 그 계정의 최근 게시물 5개에서 홍보 트윗 리포스트 찾기
 //  비용 상한: 한 유저가 하루 X_MAX_CHECKS_PER_DAY 번까지만 API를 호출 (호출 1번 = 대략 $0.035~0.06)
 // ============================================================
 const X_MAX_CHECKS_PER_DAY = 3;
+// ★ X 연동(OAuth 로그인): Secrets 에 X_CLIENT_ID + X_CLIENT_SECRET 이 둘 다 있을 때만 켜짐. 켜지면 핸들 직접 입력은 무시되고 '연동된 계정'만 인정.
+//   콜백은 별도 함수 x-callback (backend/x-callback.ts) 이 처리. 없으면 기존 핸들 입력 방식으로 동작.
+function oauthOn() { return !!(Deno.env.get("X_CLIENT_ID") && Deno.env.get("X_CLIENT_SECRET")); }
+function b64url(bytes) { return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); }
 function normalizeX(v) {
   const x = String(v || "").trim().replace(/^@+/, "").toLowerCase();
   return { x, ok: !x || /^[a-z0-9_]{1,15}$/.test(x) };
@@ -96,12 +100,15 @@ async function xGet(path, token) {
   return { status: res.status, body };
 }
 // 결과 state: found(리포스트 확인) | not_found(못 찾음) | no_account(계정 없음) | error(API 장애·크레딧 소진·호출 한도)
-async function checkRepost(token, tweetId, username) {
-  const u = await xGet("/users/by/username/" + encodeURIComponent(username), token);
-  if (u.status !== 200) return { state: "error" };
-  if (!u.body || !u.body.data) return { state: "no_account" };
-  const userId = String(u.body.data.id);
-  const t = await xGet("/users/" + userId + "/tweets?max_results=10&tweet.fields=referenced_tweets", token);
+async function checkRepost(token, tweetId, username, knownUserId) {
+  let userId = knownUserId ? String(knownUserId) : null; // X 연동(OAuth)으로 계정 번호를 이미 알면 조회 생략 (호출 1건 절약)
+  if (!userId) {
+    const u = await xGet("/users/by/username/" + encodeURIComponent(username), token);
+    if (u.status !== 200) return { state: "error" };
+    if (!u.body || !u.body.data) return { state: "no_account" };
+    userId = String(u.body.data.id);
+  }
+  const t =await xGet("/users/" + userId + "/tweets?max_results=5&tweet.fields=referenced_tweets", token);
   if (t.status !== 200) return { state: "error", userId };
   const list = (t.body && t.body.data) || [];
   const hit = list.some((p) => (p.referenced_tweets || []).some((r) => r.type === "retweeted" && String(r.id) === String(tweetId)));
@@ -142,7 +149,7 @@ Deno.serve(async (req) => {
     //  처음 온 유저면 여기서 새로 등록. 텔레그램 이름 바뀌었으면 최신화.
     if (action === "load_user") {
       let { data: u } = await db.from("app_users")
-        .select("name, points, streak, last_checkin, discord, wallet, x_handle, agreed, onboarded, referred_by, referrals")
+        .select("name, points, streak, last_checkin, discord, wallet, x_handle, x_connected, agreed, onboarded, referred_by, referrals")
         .eq("telegram_id", telegram_id).maybeSingle();
       if (!u) {
         await db.from("app_users").insert({ telegram_id, name: who.name, points: 0, streak: 0 });
@@ -152,7 +159,7 @@ Deno.serve(async (req) => {
       }
       const { data: comp } = await db.from("completions")
         .select("mission_id").eq("telegram_id", telegram_id).in("day", [utcToday(), "2000-01-01"]);
-      return json({ ok: true, user: u, completions: (comp || []).map((c) => c.mission_id) });
+      return json({ ok: true, user: u, oauth: oauthOn(), completions: (comp || []).map((c) => c.mission_id) });
     }
 
     // ===== 내 초대 현황 (상단 Referrals 클릭 시) =====
@@ -188,26 +195,61 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ===== 온보딩 2단계: X 연동(OAuth) 시작 =====
+    //  1회용 state + PKCE 검증값을 DB(x_oauth)에 저장하고 X 승인 주소를 돌려줌. 승인 결과는 x-callback 함수가 받아 저장.
+    if (action === "x_oauth_start") {
+      if (!oauthOn()) return json({ ok: false, reason: "disabled" });
+      if (Date.now() > REG_DEADLINE_MS) return json({ ok: false, reason: "closed" });
+      const { data: cu } = await db.from("app_users").select("x_repost_status").eq("telegram_id", telegram_id).maybeSingle();
+      if (cu && cu.x_repost_status === "verified") return json({ ok: false, reason: "x_locked" }); // 검증 끝난 뒤엔 계정 변경 불가
+      const rnd = (n) => b64url(crypto.getRandomValues(new Uint8Array(n)));
+      const state = rnd(24), verifier = rnd(48);
+      const challenge = b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
+      await db.from("x_oauth").delete().eq("telegram_id", telegram_id); // 이전 시도 정리
+      const { error: oe } = await db.from("x_oauth").insert({ state, telegram_id, verifier });
+      if (oe) return json({ ok: false, reason: "error", detail: String(oe.message || "") }, 500);
+      const redirect = Deno.env.get("SUPABASE_URL") + "/functions/v1/x-callback";
+      const url = "https://x.com/i/oauth2/authorize?response_type=code&client_id=" + encodeURIComponent(Deno.env.get("X_CLIENT_ID"))
+        + "&redirect_uri=" + encodeURIComponent(redirect) + "&scope=" + encodeURIComponent("users.read tweet.read")
+        + "&state=" + state + "&code_challenge=" + challenge + "&code_challenge_method=S256";
+      return json({ ok: true, url });
+    }
+
+    // X 연동이 끝났는지 확인 (화면이 연동 창에서 돌아온 뒤 주기적으로 호출)
+    if (action === "x_oauth_status") {
+      const { data: me } = await db.from("app_users").select("x_handle, x_connected").eq("telegram_id", telegram_id).maybeSingle();
+      return json({ ok: true, connected: !!(me && me.x_connected), x_handle: me ? me.x_handle : null });
+    }
+
     // ===== 온보딩 3단계: 홍보 트윗 리포스트 확인 =====
     //  입력한 X 핸들이 홍보 트윗을 리포스트했는지 X API 로 확인. (X API 미설정이면 "disabled" → 화면이 기존 연출로 진행)
     if (action === "verify_repost") {
       const token = Deno.env.get("X_BEARER_TOKEN"), tweetId = Deno.env.get("X_CAMPAIGN_TWEET_ID");
       if (!token || !tweetId) return json({ ok: false, reason: "disabled" });
-      const nx = normalizeX(body.x_handle);
-      if (!nx.x || !nx.ok) return json({ ok: false, reason: "bad_x" });
-      const x = nx.x;
+      const oa = oauthOn(); // X 연동이 켜져 있으면 입력값이 아니라 '연동된 계정'을 사용
       const { data: me } = await db.from("app_users")
-        .select("x_handle, x_repost_status, x_check_count, x_check_day").eq("telegram_id", telegram_id).maybeSingle();
+        .select("x_handle, x_user_id, x_connected, x_repost_status, x_check_count, x_check_day").eq("telegram_id", telegram_id).maybeSingle();
+      let x, knownId = null;
+      if (oa) {
+        if (!me || !me.x_connected || !me.x_user_id || !me.x_handle) return json({ ok: false, reason: "x_not_connected" });
+        x = me.x_handle; knownId = me.x_user_id;
+      } else {
+        const nx = normalizeX(body.x_handle);
+        if (!nx.x || !nx.ok) return json({ ok: false, reason: "bad_x" });
+        x = nx.x;
+      }
       if (me && me.x_repost_status === "verified" && me.x_handle === x) return json({ ok: true }); // 이미 확인됨 → API 재호출 안 함(비용 절약)
-      const { data: dupX } = await db.from("app_users").select("telegram_id").eq("x_handle", x).neq("telegram_id", telegram_id).limit(1);
-      if (dupX && dupX.length) return json({ ok: false, reason: "x_taken" });
+      if (!oa) {
+        const { data: dupX } = await db.from("app_users").select("telegram_id").eq("x_handle", x).neq("telegram_id", telegram_id).limit(1);
+        if (dupX && dupX.length) return json({ ok: false, reason: "x_taken" });
+      }
       // 하루 시도 제한 (비용 상한). 호출 전에 횟수부터 기록해서 연타해도 한도를 넘지 않게 함
       const today = utcToday();
       const used = (me && me.x_check_day === today) ? (me.x_check_count || 0) : 0;
       if (used >= X_MAX_CHECKS_PER_DAY) return json({ ok: false, reason: "limit", left: 0 });
       await db.from("app_users").upsert({ telegram_id, x_check_day: today, x_check_count: used + 1 });
       const left = X_MAX_CHECKS_PER_DAY - (used + 1);
-      const r = await checkRepost(token, tweetId, x);
+      const r = await checkRepost(token, tweetId, x, knownId);
       if (r.state === "error") { // API 장애·크레딧 소진 → 유저를 막지 않고 통과시키되 '미검증(skipped)'으로 표시 (지급 전 점검 대상)
         const { error: e1 } = await db.from("app_users").upsert({ telegram_id, x_handle: x, x_repost_status: "skipped" });
         if (e1 && String(e1.message || "").includes("app_users_xhandle_uniq")) return json({ ok: false, reason: "x_taken" });
@@ -216,8 +258,10 @@ Deno.serve(async (req) => {
       if (r.state === "no_account") return json({ ok: false, reason: "no_account", left });
       if (r.state === "not_found") return json({ ok: false, reason: "not_found", left });
       // 확인됨. 같은 X 계정 번호를 다른 텔레그램 계정이 이미 썼는지 확인 (핸들만 바꿔서 여러 계정을 만드는 것 방지)
-      const { data: dupId } = await db.from("app_users").select("telegram_id").eq("x_user_id", r.userId).neq("telegram_id", telegram_id).limit(1);
-      if (dupId && dupId.length) return json({ ok: false, reason: "x_taken" });
+      if (!oa) { // 연동 방식은 x-callback 이 이미 중복을 막음
+        const { data: dupId } = await db.from("app_users").select("telegram_id").eq("x_user_id", r.userId).neq("telegram_id", telegram_id).limit(1);
+        if (dupId && dupId.length) return json({ ok: false, reason: "x_taken" });
+      }
       const { error: e2 } = await db.from("app_users").upsert({ telegram_id, x_handle: x, x_user_id: r.userId, x_repost_status: "verified" });
       if (e2) {
         const m = String(e2.message || "");
@@ -257,12 +301,14 @@ Deno.serve(async (req) => {
       if (Date.now() > REG_DEADLINE_MS) return json({ ok: false, reason: "closed" }); // ★ 마감 후엔 수정도 불가
       // X API 리포스트 검증이 켜져 있으면: 검증(또는 장애로 skipped) 없이는 온보딩 완료 불가, 검증된 X 핸들은 변경 불가
       const xOn = !!(Deno.env.get("X_BEARER_TOKEN") && Deno.env.get("X_CAMPAIGN_TWEET_ID"));
+      const oa = oauthOn(); // X 연동이 켜져 있으면 핸들은 연동으로만 정해지고, 입력값(body.x_handle)은 무시
       let cur = null;
-      if (xOn) { const rc = await db.from("app_users").select("x_handle, x_repost_status").eq("telegram_id", telegram_id).maybeSingle(); cur = rc.data; }
+      if (xOn || oa) { const rc = await db.from("app_users").select("x_handle, x_repost_status, x_connected").eq("telegram_id", telegram_id).maybeSingle(); cur = rc.data; }
+      if (oa && body.onboarded === true && !(cur && cur.x_connected)) return json({ ok: false, reason: "x_not_connected" });
       if (xOn && body.onboarded === true && !(cur && ["verified", "skipped"].includes(cur.x_repost_status))) return json({ ok: false, reason: "repost_required" });
       const upd = { telegram_id };
       if (body.discord !== undefined) upd.discord = body.discord;
-      if (body.x_handle !== undefined) {
+      if (body.x_handle !== undefined && !oa) {
         // X 핸들 정리: 앞의 @ 제거 + 소문자 (X 핸들은 대소문자 구분이 없음) + 형식 확인(영문·숫자·_ 최대 15자)
         const x = String(body.x_handle || "").trim().replace(/^@+/, "").toLowerCase();
         if (x && !/^[a-z0-9_]{1,15}$/.test(x)) return json({ ok: false, reason: "bad_x" });
