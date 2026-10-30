@@ -1056,6 +1056,28 @@
     }
     document.addEventListener("visibilitychange", function () { if (!document.hidden && xPollTimer) checkXConnected(); }); // 앱으로 돌아오면 바로 확인
 
+    // 리포스트가 X API 에 잡히기까지 시간이 걸려서, 못 찾았을 때 Next 를 잠깐 막음 (시도 횟수 낭비 방지). 앱을 다시 열면 풀리지만 하루 횟수 제한은 서버가 지킴
+    const REPOST_COOLDOWN_SEC = 60;
+    let obCooldownTimer = null;
+    function startRepostCooldown(sec) {
+      const btn = document.getElementById("obNext");
+      if (!btn) return;
+      const end = Date.now() + sec * 1000;
+      if (obCooldownTimer) clearInterval(obCooldownTimer);
+      btn.disabled = true; btn.style.opacity = ".6";
+      const tick = function () {
+        const left = Math.ceil((end - Date.now()) / 1000);
+        if (left <= 0) {
+          clearInterval(obCooldownTimer); obCooldownTimer = null;
+          btn.disabled = false; btn.style.opacity = ""; btn.textContent = "Next";
+          return;
+        }
+        btn.textContent = "Try again in " + left + "s";
+      };
+      tick();
+      obCooldownTimer = setInterval(tick, 1000);
+    }
+
     // 리포스트 확인 실패 시 안내 (서버가 돌려준 reason 에 따라)
     function obGoToStep(type) {
       const i = OB_STEPS.findIndex(function (st) { return type === "repost" ? !!st.repost : st.type === type; });
@@ -1064,8 +1086,9 @@
     function repostFail(out) {
       const r = out.reason;
       if (r === "not_found") {
-        uiAlert("We couldn't find your repost yet. Please repost the tweet, wait a moment, then try again." +
+        uiAlert("We couldn't find your repost yet. Please repost the tweet, wait about 1 minute, then try again." +
           (typeof out.left === "number" ? " (" + out.left + " tries left today)" : ""));
+        if (!(typeof out.left === "number" && out.left <= 0)) startRepostCooldown(REPOST_COOLDOWN_SEC);   // 횟수가 남았으면 잠깐 막아서 급하게 눌러 낭비하지 않게
         return;
       }
       if (r === "limit") { uiAlert("Too many attempts today. Please try again tomorrow."); return; }
