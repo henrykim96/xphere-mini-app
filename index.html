@@ -927,6 +927,23 @@
     ];
     let obIndex = 0;
     const obData = { agreed: false, x_handle: "" }; // 입력값 임시보관 (지금은 X핸들만)
+    const obOpened = {};                            // 'Open post' 를 누른 단계 기록 (눌러야 Next 활성화)
+
+    // 이 단계에서 해야 할 일을 마쳤는지 → 마쳐야 Next 활성화
+    function obReady() {
+      const s = OB_STEPS[obIndex];
+      if (s.type === "agree") return !!obData.agreed;
+      if (s.type === "xconnect") return xOauth ? myXConnected : ((obData.x_handle || "").trim().length > 0);
+      if (s.type === "task") return !!obOpened[obIndex];
+      return true;
+    }
+    function updateObNext() {
+      const btn = document.getElementById("obNext");
+      if (!btn || obVerifying || obCooldownTimer) return;   // 검증 중·대기 중에는 그쪽이 버튼을 제어
+      const ok = obReady();
+      btn.disabled = !ok;
+      btn.style.opacity = ok ? "" : ".5";
+    }
 
     // 현재 단계 화면 그리기
     function renderOb() {
@@ -942,7 +959,7 @@
         body.appendChild(label);
         const cb = label.querySelector("#obAgree");
         cb.checked = obData.agreed;
-        cb.addEventListener("change", function (e) { obData.agreed = e.target.checked; });
+        cb.addEventListener("change", function (e) { obData.agreed = e.target.checked; updateObNext(); });
       } else if (s.type === "xconnect" && xOauth) {
         // X 로그인 연동: 버튼 → X 승인 화면(외부 브라우저) → 돌아오면 자동으로 '연결됨' 표시. 연동 전엔 Next 불가
         const btn = document.createElement("button");
@@ -970,13 +987,13 @@
         // X 핸들 입력
         const inp = document.createElement("input");
         inp.type = "text"; inp.placeholder = "username"; inp.value = obData.x_handle || "";
-        inp.addEventListener("input", function (e) { obData.x_handle = e.target.value; });
+        inp.addEventListener("input", function (e) { obData.x_handle = e.target.value; updateObNext(); });
         body.appendChild(inp);
       } else if (s.type === "task") {
         // 트윗/텔레그램/디스코드 열기 버튼 (지금은 '열기'만, 검증은 나중에 API)
         const open = document.createElement("button");
         open.className = "ob-open"; open.textContent = s.action + " ↗";
-        open.addEventListener("click", function () { window.open(s.url, "_blank"); });
+        open.addEventListener("click", function () { window.open(s.url, "_blank"); obOpened[obIndex] = true; updateObNext(); });   // 열어본 뒤에야 Next 가능
         body.appendChild(open);
       }
       // 진행 점(dots)
@@ -988,6 +1005,7 @@
         dots.appendChild(d);
       }
       document.getElementById("obNext").textContent = (obIndex === OB_STEPS.length - 1) ? "Get started" : "Next";
+      updateObNext();   // 해야 할 일을 마치기 전엔 Next 비활성화
     }
 
     // Next 눌렀을 때 — 검증 후 다음 단계 / 마지막이면 완료
@@ -1069,7 +1087,7 @@
         const left = Math.ceil((end - Date.now()) / 1000);
         if (left <= 0) {
           clearInterval(obCooldownTimer); obCooldownTimer = null;
-          btn.disabled = false; btn.style.opacity = ""; btn.textContent = "Next";
+          btn.textContent = "Next"; updateObNext();
           return;
         }
         btn.textContent = "Try again in " + left + "s";
