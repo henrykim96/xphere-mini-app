@@ -929,22 +929,33 @@
     ];
     let obIndex = 0;
     const obData = { agreed: false, x_handle: "" }; // 입력값 임시보관 (지금은 X핸들만)
-    const obOpened = {};                            // 'Open post' 를 누른 단계 기록 (눌러야 Next 활성화)
+    const OB_TASK_WAIT_SEC = 15;                    // 'Open …' 버튼을 누른 뒤 Next 가 풀리기까지 기다리는 시간(초) — 실제로 팔로우·리포스트할 시간을 줌
+    const obOpened = {};                            // 'Open …' 버튼을 처음 누른 시각 (단계 번호별)
+    let obTaskTimer = null;                         // 대기 카운트다운용 타이머
+    function obTaskLeft() {                         // 남은 대기 초: -1 = 아직 안 눌렀음, 0 = 대기 끝
+      const t = obOpened[obIndex];
+      if (!t) return -1;
+      return Math.max(0, Math.ceil((t + OB_TASK_WAIT_SEC * 1000 - Date.now()) / 1000));
+    }
 
     // 이 단계에서 해야 할 일을 마쳤는지 → 마쳐야 Next 활성화
     function obReady() {
       const s = OB_STEPS[obIndex];
       if (s.type === "agree") return !!obData.agreed;
       if (s.type === "xconnect") return xOauth ? myXConnected : ((obData.x_handle || "").trim().length > 0);
-      if (s.type === "task") return !!obOpened[obIndex];
+      if (s.type === "task") return obTaskLeft() === 0;
       return true;
     }
     function updateObNext() {
       const btn = document.getElementById("obNext");
       if (!btn || obVerifying || obCooldownTimer) return;   // 검증 중·대기 중에는 그쪽이 버튼을 제어
       const ok = obReady();
+      const left = (OB_STEPS[obIndex].type === "task") ? obTaskLeft() : -1;
       btn.disabled = !ok;
       btn.style.opacity = ok ? "" : ".5";
+      btn.textContent = left > 0 ? "Wait " + left + "s" : ((obIndex === OB_STEPS.length - 1) ? "Get started" : "Next");
+      if (left > 0 && !obTaskTimer) obTaskTimer = setInterval(updateObNext, 500);          // 대기 중에는 카운트다운 갱신
+      if (left <= 0 && obTaskTimer) { clearInterval(obTaskTimer); obTaskTimer = null; }    // 대기 끝·다른 단계면 타이머 정리
     }
 
     // 현재 단계 화면 그리기
@@ -995,7 +1006,7 @@
         // 트윗/텔레그램/디스코드 열기 버튼 (지금은 '열기'만, 검증은 나중에 API)
         const open = document.createElement("button");
         open.className = "ob-open"; open.textContent = s.action + " ↗";
-        open.addEventListener("click", function () { window.open(s.url, "_blank"); obOpened[obIndex] = true; updateObNext(); });   // 열어본 뒤에야 Next 가능
+        open.addEventListener("click", function () { window.open(s.url, "_blank"); if (!obOpened[obIndex]) obOpened[obIndex] = Date.now(); updateObNext(); });   // 열어본 뒤 OB_TASK_WAIT_SEC 초가 지나야 Next 가능
         body.appendChild(open);
       }
       // 진행 점(dots)
