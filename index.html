@@ -949,7 +949,7 @@
     function renderOb() {
       const s = OB_STEPS[obIndex];
       document.getElementById("obTitle").textContent = s.title;
-      document.getElementById("obSub").textContent = (s.type === "xconnect" && xOauth) ? "Sign in with X to verify it's your account." : s.sub;
+      document.getElementById("obSub").textContent = (s.type === "xconnect" && xOauth) ? "Follow our X account, then sign in with X to verify it's yours." : s.sub;
       const body = document.getElementById("obBody");
       body.innerHTML = "";
       if (s.type === "agree") {
@@ -962,6 +962,12 @@
         cb.addEventListener("change", function (e) { obData.agreed = e.target.checked; updateObNext(); });
       } else if (s.type === "xconnect" && xOauth) {
         // X 로그인 연동: 버튼 → X 승인 화면(외부 브라우저) → 돌아오면 자동으로 '연결됨' 표시. 연동 전엔 Next 불가
+        // 팔로우는 '안내만' (검증 없음, 안 눌러도 진행 가능) — 확인하려면 X API 호출 비용이 추가됨
+        const fol = document.createElement("button");
+        fol.className = "ob-open"; fol.textContent = "Follow @Xphere_official ↗";
+        fol.style.marginBottom = "10px";
+        fol.addEventListener("click", function () { window.open(OB_LINKS.x, "_blank"); });
+        body.appendChild(fol);
         const btn = document.createElement("button");
         btn.className = "ob-open";
         if (myXConnected) {
