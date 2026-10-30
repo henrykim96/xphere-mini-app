@@ -10,7 +10,7 @@
 
 Deno.serve(async (req) => {
   // ----- CORS 설정 -----
-  // 화면(Netlify 주소)에서 이 함수를 부를 때, 브라우저가 보안상
+  // 화면(GitHub Pages 주소)에서 이 함수를 부를 때, 브라우저가 보안상
   // "다른 주소 호출"을 막을 수 있어서 아래 허용 헤더가 필요해요.
   const cors = {
     "Access-Control-Allow-Origin": "*",                       // 어떤 화면에서든 호출 허용

@@ -24,7 +24,7 @@ Deno.serve(async (req) => {
   // /start 명령에 답장
   if (msg && text.startsWith("/start")) {
     const chatId = msg.chat.id;
-    const appUrl = "https://zingy-starlight-297d87.netlify.app"; // 미니앱 주소
+    const appUrl = "https://henrykim96.github.io/xphere-mini-app/"; // 미니앱 주소 (GitHub Pages)
 
     const welcome =
       "Welcome to Xphere Community! 🚀\n\n" +

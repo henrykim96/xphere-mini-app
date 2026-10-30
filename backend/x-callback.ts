@@ -10,7 +10,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const APP_URL = "https://zingy-starlight-297d87.netlify.app"; // 미니앱 주소 (x-done.html 이 있는 곳)
+const APP_URL = "https://henrykim96.github.io/xphere-mini-app"; // 미니앱 주소 (x-done.html 이 있는 곳, GitHub Pages)
 const back = (s: string) => new Response(null, { status: 302, headers: { Location: APP_URL + "/x-done.html?s=" + s } });
 
 Deno.serve(async (req) => {
