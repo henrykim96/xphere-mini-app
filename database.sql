@@ -187,3 +187,6 @@ create table if not exists point_log (
 );
 create index if not exists point_log_user_idx on point_log (telegram_id, created_at desc);
 alter table point_log enable row level security;  -- 정책 없음 = 클라이언트 접근 불가, 서버(service role)만 가능
+
+-- 어드민의 'Registered' 열(지갑 등록 시각)용. 이미 있으면 건너뜀. ★ 어드민/서버 배포 전에 실행
+alter table app_users add column if not exists registered_at timestamptz;

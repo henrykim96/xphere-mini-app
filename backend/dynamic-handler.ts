@@ -138,12 +138,22 @@ Deno.serve(async (req) => {
       if (!pw || body.password !== pw) return json({ ok: false, reason: "unauthorized" }, 401);
       const dbA = createClient(Deno.env.get("SUPABASE_URL"), Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"));
       const { data } = await dbA.from("app_users")
-        .select("name, points, referrals, wallet, x_handle, x_repost_status, telegram_id, onboarded, created_at")
+        .select("name, points, referrals, wallet, x_handle, x_repost_status, telegram_id, onboarded, created_at, registered_at")
         // ★ 순위 규칙: 포인트 높은 순 → 동점이면 먼저 가입한 순 → 그래도 같으면 텔레그램 ID 작은 순(항상 같은 순서가 나오게)
         .order("points", { ascending: false })
         .order("created_at", { ascending: true })
         .order("telegram_id", { ascending: true });
       return json({ ok: true, users: data || [] });
+    }
+    // ===== 관리자: 특정 유저의 포인트 내역 (어드민 표에서 행을 눌렀을 때). 같은 팀 비밀번호로 보호 =====
+    if (action === "admin_user_log") {
+      const pw = Deno.env.get("ADMIN_PASSWORD");
+      if (!pw || body.password !== pw) return json({ ok: false, reason: "unauthorized" }, 401);
+      const dbL = createClient(Deno.env.get("SUPABASE_URL"), Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"));
+      const { data } = await dbL.from("point_log")
+        .select("kind, points, note, created_at")
+        .eq("telegram_id", Number(body.telegram_id)).order("created_at", { ascending: false }).limit(200);
+      return json({ ok: true, list: data || [] });
     }
 
     const who = await resolveUserId(body); // ★ 서버가 신원 확인

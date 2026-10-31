@@ -8,7 +8,7 @@
     /* ===== Xphere 다크 테마 (내부 대시보드) ===== */
     :root {
       --bg: #0a0507; --card: rgba(30,18,22,0.55); --line: rgba(225,29,42,0.18);
-      --line2: rgba(255,255,255,0.06); --text: #f5eef0; --muted: #9a8a8e; --red: #e11d2a; --red-hi: #ff3547;
+      --line2: rgba(255,255,255,0.06); --text: #f5eef0; --muted: #9a8a8e; --red: #e11d2a; --red-hi: #ff3547; --green: #2ecc71;
     }
     * { box-sizing: border-box; }
     body {
@@ -17,7 +17,7 @@
       background: radial-gradient(120% 60% at 80% -5%, rgba(225,29,42,0.22), transparent 55%), linear-gradient(180deg, #0f0a0c, var(--bg));
       background-attachment: fixed; min-height: 100vh; padding: 24px 16px 60px;
     }
-    .wrap { max-width: 1000px; margin: 0 auto; }
+    .wrap { max-width: 1100px; margin: 0 auto; }
     h1 { font-size: 24px; margin: 0 0 4px; }
     .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
 
@@ -45,12 +45,27 @@
     th, td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--line2); }
     th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: #14100f; }
     tr:last-child td { border-bottom: none; }
+    tbody tr.user { cursor: pointer; }
+    tbody tr.user:hover { background: rgba(255,255,255,0.03); }
     .rank { font-weight: 800; color: var(--red-hi); }
     .wallet { font-family: monospace; color: var(--muted); font-size: 12px; }
     .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 10px; flex-wrap: wrap; }
+    .toolbar .left { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .toolbar input[type=text] { padding: 8px 12px; border-radius: 8px; background: rgba(255,255,255,0.05);
+      border: 1px solid var(--line2); color: var(--text); font-size: 13px; min-width: 240px; }
+    .toolbar input[type=text]:focus { outline: none; border-color: var(--red); }
+    .toolbar label { color: var(--text); font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
     .toolbar button { background: rgba(255,255,255,0.06); border: 1px solid var(--line2); color: var(--text);
       border-radius: 8px; padding: 8px 14px; cursor: pointer; font-size: 13px; }
     .hidden { display: none; }
+
+    /* 행을 눌렀을 때 펼쳐지는 포인트 내역 */
+    td.detail { background: rgba(0,0,0,0.25); white-space: normal; padding: 12px 18px 16px; }
+    .log-row { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px dashed var(--line2); font-size: 13px; }
+    .log-row:last-child { border-bottom: none; }
+    .log-row small { color: var(--muted); }
+    .log-pts { color: var(--green); font-weight: 700; }
+    .log-empty { color: var(--muted); font-size: 13px; }
   </style>
 </head>
 <body>
@@ -68,19 +83,23 @@
     <!-- 대시보드 -->
     <div id="dash" class="hidden">
       <h1>Xphere Admin Dashboard</h1>
-      <div class="sub">Internal only — points ranking &amp; user data</div>
+      <div class="sub">Internal only — points ranking &amp; user data. Click a row to see that user's point history.</div>
 
       <div class="stats" id="stats"></div>
 
       <div class="toolbar">
-        <div style="color:var(--muted);font-size:13px" id="count"></div>
+        <div class="left">
+          <input type="text" id="search" placeholder="Search name / X / wallet / Telegram ID" />
+          <label><input type="checkbox" id="walletOnly" /> Wallet registered only</label>
+          <div style="color:var(--muted);font-size:13px" id="count"></div>
+        </div>
         <button id="csvBtn">Download CSV</button>
       </div>
 
       <div class="tablewrap">
         <table>
           <thead>
-            <tr><th>#</th><th>Name</th><th>Points</th><th>Referrals</th><th>Onboarded</th><th>X</th><th>Repost</th><th>Wallet</th><th>Joined</th><th>Telegram ID</th></tr>
+            <tr><th>#</th><th>Reg #</th><th>Name</th><th>Points</th><th>Referrals</th><th>Onboarded</th><th>X</th><th>Repost</th><th>Wallet</th><th>Registered</th><th>Joined</th><th>Telegram ID</th></tr>
           </thead>
           <tbody id="rows"></tbody>
         </table>
@@ -94,21 +113,30 @@
     const FUNCTION_URL = "https://ltodfynoaozgcaobwcgo.supabase.co/functions/v1/dynamic-handler";
     const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx0b2RmeW5vYW96Z2Nhb2J3Y2dvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5OTUyNDYsImV4cCI6MjA5OTU3MTI0Nn0.Fz5b50r2OIhkg7quvndelfFwjq2tvWnVtAuweHdRsBA";
 
-    let USERS = [];
+    let USERS = [];   // 서버가 준 전체 유저 (포인트 순). 각 유저에 rank(전체 순위)·wrank(지갑 등록자 중 순위) 를 붙임
+    let VIEW = [];    // 지금 화면에 보이는(필터·검색 적용된) 유저
+    let PW = "";      // 로그인에 쓴 비밀번호 (유저별 내역 조회에 다시 사용, 이 탭 메모리에만 있음)
+
+    function callAdmin(body) {
+      return fetch(FUNCTION_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + SUPABASE_ANON, "apikey": SUPABASE_ANON },
+        body: JSON.stringify(Object.assign({ password: PW }, body)),
+      }).then(function (r) { return r.json(); });
+    }
 
     async function login() {
-      const pw = document.getElementById("pw").value;
       const err = document.getElementById("err");
       err.textContent = "";
+      PW = document.getElementById("pw").value;
       try {
-        const resp = await fetch(FUNCTION_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + SUPABASE_ANON, "apikey": SUPABASE_ANON },
-          body: JSON.stringify({ action: "admin_leaderboard", password: pw }),
-        });
-        const out = await resp.json();
+        const out = await callAdmin({ action: "admin_leaderboard" });
         if (!out.ok) { err.textContent = "Wrong password."; return; }
         USERS = out.users || [];
+        // ★ 순위: 서버가 '포인트 높은 순 → 먼저 가입한 순 → 텔레그램 ID 작은 순'으로 이미 정렬해서 줌
+        //   rank = 전체 순위, wrank = 지갑을 등록한 유저들 사이의 순위 (에어드랍 지급 대상 순위)
+        let w = 0;
+        USERS.forEach(function (u, i) { u.rank = i + 1; u.wrank = u.wallet ? ++w : ""; });
         showDashboard();
       } catch (e) { err.textContent = "Network error."; }
     }
@@ -117,7 +145,7 @@
       document.getElementById("gate").classList.add("hidden");
       document.getElementById("dash").classList.remove("hidden");
 
-      // 통계
+      // 통계 (항상 전체 기준)
       const total = USERS.length;
       const withWallet = USERS.filter(function (u) { return u.wallet; }).length;
       const totalPoints = USERS.reduce(function (s, u) { return s + (u.points || 0); }, 0);
@@ -125,29 +153,77 @@
       document.getElementById("stats").innerHTML =
         stat(total, "Total Users") + stat(onboarded, "Onboarded") +
         stat(withWallet, "Wallets Registered") + stat(totalPoints, "Total Points");
-      document.getElementById("count").textContent = total + " users (sorted by points)";
+      render();
+    }
 
-      // 표
-      const rows = USERS.map(function (u, i) {
-        return "<tr><td class='rank'>" + (i + 1) + "</td><td>" + esc(u.name) + "</td><td>" + (u.points || 0) +
-          "</td><td>" + (u.referrals || 0) + "</td><td>" + (u.onboarded ? "✓" : "") +
-          "</td><td>" + esc(u.x_handle) +
-          "</td><td>" + (u.x_repost_status === "verified" ? "✓" : (u.x_repost_status === "skipped" ? "skipped" : "")) +
-          "</td><td class='wallet'>" + esc(u.wallet) + "</td><td>" + (u.created_at ? u.created_at.slice(0, 10) : "") +
-          "</td><td>" + u.telegram_id + "</td></tr>";
-      }).join("");
-      document.getElementById("rows").innerHTML = rows;
+    // 필터·검색을 적용해서 표를 다시 그림
+    function render() {
+      const q = document.getElementById("search").value.trim().toLowerCase();
+      const only = document.getElementById("walletOnly").checked;
+      VIEW = USERS.filter(function (u) {
+        if (only && !u.wallet) return false;
+        if (!q) return true;
+        return [u.name, u.x_handle, u.wallet, u.telegram_id].some(function (v) { return String(v == null ? "" : v).toLowerCase().indexOf(q) !== -1; });
+      });
+      document.getElementById("count").textContent = VIEW.length + " / " + USERS.length + " users (sorted by points)";
+
+      const tbody = document.getElementById("rows");
+      tbody.innerHTML = "";
+      VIEW.forEach(function (u) {
+        const tr = document.createElement("tr");
+        tr.className = "user";
+        const cells = [
+          [u.rank, "rank"], [u.wrank, "rank"], [u.name], [u.points || 0], [u.referrals || 0], [u.onboarded ? "✓" : ""],
+          [u.x_handle], [u.x_repost_status === "verified" ? "✓" : (u.x_repost_status === "skipped" ? "skipped" : "")],
+          [u.wallet, "wallet"], [u.registered_at ? u.registered_at.slice(0, 10) : ""], [u.created_at ? u.created_at.slice(0, 10) : ""], [u.telegram_id],
+        ];
+        cells.forEach(function (c) {
+          const td = document.createElement("td");
+          if (c[1]) td.className = c[1];
+          td.textContent = c[0] == null ? "" : String(c[0]);   // textContent = 이름에 HTML이 있어도 안전
+          tr.appendChild(td);
+        });
+        tr.addEventListener("click", function () { toggleDetail(tr, u); });
+        tbody.appendChild(tr);
+      });
+    }
+
+    // 행을 누르면 그 유저의 포인트 내역(최근 200건)을 아래에 펼침. 다시 누르면 접힘
+    async function toggleDetail(tr, u) {
+      const next = tr.nextSibling;
+      if (next && next.classList && next.classList.contains("detail-row")) { next.remove(); return; }
+      const dr = document.createElement("tr"); dr.className = "detail-row";
+      const td = document.createElement("td"); td.className = "detail"; td.colSpan = 12;
+      td.innerHTML = '<div class="log-empty">Loading...</div>';
+      dr.appendChild(td);
+      tr.parentNode.insertBefore(dr, tr.nextSibling);
+      let out = null;
+      try { out = await callAdmin({ action: "admin_user_log", telegram_id: u.telegram_id }); } catch (e) {}
+      td.innerHTML = "";
+      if (!out || !out.ok) { td.innerHTML = '<div class="log-empty">Failed to load. (Is the latest server code deployed?)</div>'; return; }
+      if (!out.list.length) { td.innerHTML = '<div class="log-empty">No point records yet. (Records start from when the History feature was deployed.)</div>'; return; }
+      out.list.forEach(function (r) {
+        const row = document.createElement("div"); row.className = "log-row";
+        const left = document.createElement("div");
+        left.textContent = (r.note || r.kind) + " ";
+        const small = document.createElement("small");
+        small.textContent = "· " + r.kind + " · " + new Date(r.created_at).toLocaleString();
+        left.appendChild(small);
+        const pts = document.createElement("div"); pts.className = "log-pts"; pts.textContent = "+" + r.points;
+        row.appendChild(left); row.appendChild(pts); td.appendChild(row);
+      });
     }
 
     function stat(n, label) { return "<div class='stat'><div class='n'>" + n + "</div><div class='l'>" + label + "</div></div>"; }
-    function esc(s) { return s == null ? "" : String(s).replace(/</g, "&lt;"); }
 
-    // CSV 내보내기 (에어드랍 대상 뽑기용)
+    // CSV 내보내기 — 지금 화면에 보이는(필터·검색 적용) 목록 그대로. 에어드랍 대상 뽑기용 (rank=전체 순위, wallet_rank=지갑 등록자 중 순위)
+    function csvCell(v) { return JSON.stringify(v == null ? "" : String(v)); }
     function downloadCsv() {
-      const head = "rank,name,points,referrals,x_handle,repost_status,wallet,joined,telegram_id\n";
-      const body = USERS.map(function (u, i) {
-        return [i + 1, JSON.stringify(u.name || ""), u.points || 0, u.referrals || 0,
-          JSON.stringify(u.x_handle || ""), u.x_repost_status || "", u.wallet || "", (u.created_at ? u.created_at.slice(0, 10) : ""), u.telegram_id].join(",");
+      const head = "rank,wallet_rank,name,points,referrals,x_handle,repost_status,wallet,registered,joined,telegram_id\n";
+      const body = VIEW.map(function (u) {
+        return [u.rank, u.wrank, csvCell(u.name), u.points || 0, u.referrals || 0,
+          csvCell(u.x_handle), u.x_repost_status || "", u.wallet || "", (u.registered_at ? u.registered_at.slice(0, 10) : ""),
+          (u.created_at ? u.created_at.slice(0, 10) : ""), u.telegram_id].join(",");
       }).join("\n");
       // 맨 앞 ﻿ = 엑셀에서 한글이 안 깨지게 하는 표시(BOM)
       const blob = new Blob(["﻿" + head + body], { type: "text/csv;charset=utf-8" });
@@ -160,6 +236,8 @@
     document.getElementById("loginBtn").addEventListener("click", login);
     document.getElementById("pw").addEventListener("keydown", function (e) { if (e.key === "Enter") login(); });
     document.getElementById("csvBtn").addEventListener("click", downloadCsv);
+    document.getElementById("search").addEventListener("input", render);
+    document.getElementById("walletOnly").addEventListener("change", render);
   </script>
 </body>
 </html>
