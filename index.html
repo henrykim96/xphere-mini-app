@@ -963,10 +963,24 @@
     // ※ X 의 in_reply_to 는 현재 무시되어 '답글'이 아니라 새 게시물로 올라감 → 그래서 답글이 아니라 홍보 게시물로 운영
     // 문구는 아래 중 하나가 무작위로 채워짐 (같은 문장이 반복되면 스팸으로 분류될 수 있어서). 유저가 고쳐도 됨, 링크는 따로 붙음. 추가·삭제 자유
     const OB_SHARE_TEXTS = [
-      "@Xphere_official is running an airdrop event right now. Check it out!",
-      "Xphere's airdrop event is live! 🪂 Join in and earn points. Details here @Xphere_official",
-      "Don't miss the @Xphere_official airdrop event happening now 👀",
-    ];
+      // 01 Mini App Launch
+      "🚀 The XPHERE Mini App is LIVE! ⛏️⚡️\n\nCheck in daily, complete missions, and earn points!\n\n🏆 Top participants can receive XP token rewards during our November airdrop event.\n\nJoin now 👇\n@Xphere_official\n\n#XPHERE #Web3",
+      // 02 November Airdrop
+      "🎁 The XPHERE November Airdrop Event is here!\n\nEarn points by checking in, engaging with posts, and completing missions in the XPHERE Mini App.\n\nXP token rewards await top participants. 🏆\n\nGet started 👇\n@Xphere_official\n\n#XPHERE #Airdrop",
+      // 03 Quick Introduction
+      "Looking for a new Web3 activity? 👀\n\nCheck out the XPHERE Mini App!\n\n✅ Daily check-ins\n🎯 Missions & points\n🏆 XP token rewards for top participants\n\nJoin the November event! ⚡️\n\n@Xphere_official #XPHERE",
+      // 04 Earn Points
+      "⛏️ Every check-in counts!\n\nExplore the XPHERE Mini App and earn points by completing daily check-ins and missions throughout November.\n\nKeep participating for a chance to receive XP token rewards! ⚡️\n\n@Xphere_official #XPHERE #Web3",
+      // 05 Community
+      "🌐 Let's get involved with XPHERE!\n\nThe XPHERE Mini App features daily check-ins, social missions, and points to collect.\n\nTake part in the November event and aim for XP token rewards! 🏆\n\nJoin here 👇\n@Xphere_official\n\n#XPHERE",
+      // 06 Casual Discovery
+      "Found something new to try this November 👀⚡️\n\nThe XPHERE Mini App lets you earn points through check-ins and missions.\n\nTop participants can qualify for XP token rewards. Worth checking out! ⛏️\n\n@Xphere_official #XPHERE #Airdrop",
+      // 07 Daily Missions
+      "Your daily missions just got more exciting! 🎯\n\nCheck in, engage with XPHERE posts, and collect points with the XPHERE Mini App.\n\n🏆 Top participants can earn XP token rewards in the November event.\n\nStart here 👇\n@Xphere_official #XPHERE",
+      // 08 Join the Event
+      "⚡️ Join the XPHERE November Airdrop Event!\n\n📲 Explore the Mini App\n✅ Check in daily\n🎯 Complete missions\n⭐ Earn points\n\nTop participants are eligible for XP token rewards.\n\nDon't miss out 👇\n@Xphere_official\n\n#XPHERE #Web3",
+      // 09 XP Rewards
+      "👀 XP token rewards are up for grabs for top participants!\n\nJoin the XPHERE Mini App, complete missions, and earn points throughout November.\n\nEvery mission is another chance to climb higher. ⛏️⚡️\n\nGet involved 👇\n@Xphere_official #XPHERE",    ];
     const obShareText = OB_SHARE_TEXTS[Math.floor(Math.random() * OB_SHARE_TEXTS.length)];
     OB_LINKS.share = "https://x.com/intent/post?text=" + encodeURIComponent(obShareText) + "&url=" + encodeURIComponent(OB_LINKS.x);   // 링크를 이벤트 트윗으로 바꾸려면 OB_LINKS.x → OB_LINKS.post
     const OB_STEPS = [
