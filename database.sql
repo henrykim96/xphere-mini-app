@@ -170,3 +170,20 @@ create table if not exists x_oauth (
   created_at  timestamptz default now()
 );
 alter table x_oauth enable row level security;   -- 정책 없음 = 클라이언트 접근 불가, 서버(service role)만 가능
+
+
+-- ============================================================
+--  포인트 내역(History 탭)용  (2026-10-31)
+--  ★ SQL Editor 에서 '서버 코드 배포 전에' 실행. 여러 번 실행해도 안전.
+--  포인트가 들어올 때마다 서버가 한 줄씩 기록 (kind: mission / checkin / referral)
+-- ============================================================
+create table if not exists point_log (
+  id          bigint generated always as identity primary key,
+  telegram_id bigint not null,
+  kind        text   not null,
+  points      integer not null,
+  note        text,
+  created_at  timestamptz default now()
+);
+create index if not exists point_log_user_idx on point_log (telegram_id, created_at desc);
+alter table point_log enable row level security;  -- 정책 없음 = 클라이언트 접근 불가, 서버(service role)만 가능

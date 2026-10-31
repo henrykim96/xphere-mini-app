@@ -49,11 +49,18 @@ async function resolveUserId(body) {
   }
   return { error: "no_user" }; // initData 서명 없으면 무조건 거부 (우회 없음)
 }
+// 포인트 내역 한 줄 기록 (point_log). ★ 기록이 실패해도 포인트 지급은 절대 막지 않음 (실패는 로그만 남기고 무시)
+async function logPoints(db, telegram_id, kind, points, note) {
+  try {
+    const { error } = await db.from("point_log").insert({ telegram_id, kind, points, note });
+    if (error) console.log("point_log fail", error.message);
+  } catch (e) { console.log("point_log error", String(e)); }
+}
 // 초대 보상 지급 시도. 조건을 다 채웠을 때 '딱 한 번'만 추천인에게 보상.
 //  조건: ① 초대받고 온 유저 ② 온보딩 완료 ③ 미션 REFERRAL_MIN_MISSIONS개 이상 완료 ④ 아직 보상 안 나감
 async function tryPayReferral(db, telegram_id) {
   if (!REFERRAL_ENABLED) return;
-  const { data: me } = await db.from("app_users").select("referred_by, onboarded, referral_paid").eq("telegram_id", telegram_id).maybeSingle();
+  const { data: me } = await db.from("app_users").select("referred_by, onboarded, referral_paid, name").eq("telegram_id", telegram_id).maybeSingle();
   if (!me || !me.referred_by || me.referral_paid || !me.onboarded) return;
   const { count } = await db.from("completions").select("mission_id", { count: "exact", head: true }).eq("telegram_id", telegram_id);
   if ((count || 0) < REFERRAL_MIN_MISSIONS) return;
@@ -64,6 +71,7 @@ async function tryPayReferral(db, telegram_id) {
   const { data: ref } = await db.from("app_users").select("points, referrals").eq("telegram_id", me.referred_by).maybeSingle();
   if (!ref || (ref.referrals || 0) >= REFERRAL_MAX_PAID) return; // 추천인 없음 or 상한 도달
   await db.from("app_users").update({ points: (ref.points || 0) + REFERRAL_POINTS, referrals: (ref.referrals || 0) + 1 }).eq("telegram_id", me.referred_by);
+  await logPoints(db, me.referred_by, "referral", REFERRAL_POINTS, "Friend joined: " + (me.name || "Friend")); // 내역 기록 (추천인 쪽)
 }
 async function isTelegramMember(channel, userId) {
   const token = Deno.env.get("BOT_TOKEN");
@@ -160,6 +168,15 @@ Deno.serve(async (req) => {
       const { data: comp } = await db.from("completions")
         .select("mission_id").eq("telegram_id", telegram_id).in("day", [utcToday(), "2000-01-01"]);
       return json({ ok: true, user: u, oauth: oauthOn(), completions: (comp || []).map((c) => c.mission_id) });
+    }
+
+    // ===== 내 포인트 내역 (상단 History 클릭 시) =====
+    //  최근 100건, 최신순. 읽기만 함. (point_log 가 없거나 실패하면 빈 목록)
+    if (action === "my_points_log") {
+      const { data: rows } = await db.from("point_log")
+        .select("kind, points, note, created_at")
+        .eq("telegram_id", telegram_id).order("created_at", { ascending: false }).limit(100);
+      return json({ ok: true, list: rows || [] });
     }
 
     // ===== 내 초대 현황 (상단 Referrals 클릭 시) =====
@@ -293,6 +310,7 @@ Deno.serve(async (req) => {
         const { data: cur } = await db.from("app_users").select("points, streak").eq("telegram_id", telegram_id).maybeSingle();
         return json({ ok: false, reason: "already", points: cur ? cur.points || 0 : 0, streak: cur ? cur.streak || 0 : 0 });
       }
+      await logPoints(db, telegram_id, "checkin", CHECKIN_POINTS, "Daily check-in (" + newStreak + " day streak)"); // 내역 기록
       return json({ ok: true, points: newPoints, streak: newStreak });
     }
 
@@ -345,7 +363,7 @@ Deno.serve(async (req) => {
     // ===== 미션 완료 (+텔레그램 검증) =====
     if (mission_id) {
       const { data: mission } = await db.from("missions")
-        .select("points, category, active, verify_type, verify_target").eq("id", mission_id).maybeSingle();
+        .select("title, points, category, active, verify_type, verify_target").eq("id", mission_id).maybeSingle();
       if (!mission || !mission.active) return json({ ok: false, reason: "no_mission" }, 404);
       if (mission.verify_type === "telegram") {
         const joined = await isTelegramMember(mission.verify_target, telegram_id);
@@ -360,6 +378,7 @@ Deno.serve(async (req) => {
       const { data: u } = await db.from("app_users").select("points").eq("telegram_id", telegram_id).maybeSingle();
       const newPoints = (u ? u.points : 0) + mission.points;
       await db.from("app_users").upsert({ telegram_id, points: newPoints });
+      await logPoints(db, telegram_id, "mission", mission.points, mission.title || "Mission"); // 내역 기록
       await tryPayReferral(db, telegram_id); // 미션 완료로 초대 보상 조건(미션 N개)이 채워졌을 수 있음
       return json({ ok: true, points: newPoints, added: mission.points });
     }

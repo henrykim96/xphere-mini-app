@@ -207,7 +207,7 @@
     .modal-close { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; }
     .modal-sub { color: var(--muted); font-size: 13px; margin: 8px 0 18px; line-height: 1.5; }
     /* 내 초대 현황 (Referrals 모달) */
-    #navRef { cursor: pointer; }
+    #navRef, #navLog { cursor: pointer; }
     .rf-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 6px 0 16px; }
     .rf-stat { background: rgba(255,255,255,0.04); border: 1px solid var(--line-2); border-radius: 12px; padding: 12px 8px; text-align: center; }
     .rf-stat b { display: block; font-size: 20px; }
@@ -326,7 +326,7 @@
     </div>
     <div class="pts"><div class="n" id="userPoints">0</div><div class="u">Point</div></div>
   </div>
-  <div class="subnav"><a>Earnings</a><a id="navRef">Referrals</a></div>
+  <div class="subnav"><a>Earnings</a><a id="navRef">Referrals</a><a id="navLog">History</a></div>
 
   <!-- ===== 초대 링크 (REFERRAL_ENABLED=false 이면 JS가 숨김) ===== -->
   <div class="ref" id="refBox">
@@ -398,6 +398,18 @@
       </div>
       <div class="rf-list" id="rfList"></div>
       <button class="submit-btn" id="rfCopy" style="margin-top:16px">Copy invite link</button>
+    </div>
+  </div>
+
+  <!-- 포인트 내역 모달 (상단 History 누르면 열림) -->
+  <div class="modal-overlay" id="logModal">
+    <div class="modal">
+      <div class="modal-head">
+        <h2>Points History</h2>
+        <button class="modal-close" id="logClose">✕</button>
+      </div>
+      <p class="modal-sub">Your latest 100 point records.</p>
+      <div class="rf-list" id="logList"></div>
     </div>
   </div>
 
@@ -874,6 +886,30 @@
     }
     function closeRef() { document.getElementById("refModal").style.display = "none"; }
 
+    // ===== 내 포인트 내역 (상단 History 클릭 시) — 열 때마다 서버에서 최신 100건을 받아옴 =====
+    const LOG_KIND = { mission: "Mission", checkin: "Check-in", referral: "Referral" };
+    async function openLog() {
+      document.getElementById("logModal").style.display = "flex";
+      const list = document.getElementById("logList");
+      list.innerHTML = '<div class="rf-empty">Loading...</div>';
+      const out = await callApi({ action: "my_points_log" });
+      if (!out || !out.ok) { list.innerHTML = '<div class="rf-empty">Failed to load. Please try again.</div>'; return; }
+      list.innerHTML = "";
+      if (!out.list.length) { list.innerHTML = '<div class="rf-empty">No points earned yet. Complete a mission or check in!</div>'; return; }
+      out.list.forEach(function (r) {
+        const row = document.createElement("div"); row.className = "rf-row";
+        const left = document.createElement("div");
+        const nm = document.createElement("b"); nm.textContent = r.note || LOG_KIND[r.kind] || "Points";   // textContent = HTML이 들어와도 안전
+        const sub = document.createElement("small");
+        const d = new Date(r.created_at);
+        sub.textContent = (LOG_KIND[r.kind] || "") + " · " + d.toLocaleDateString() + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        left.appendChild(nm); left.appendChild(sub);
+        const chip = document.createElement("span"); chip.className = "rf-chip ok"; chip.textContent = "+" + r.points;
+        row.appendChild(left); row.appendChild(chip); list.appendChild(row);
+      });
+    }
+    function closeLog() { document.getElementById("logModal").style.display = "none"; }
+
     // 폼 저장 — 입력값 확인 후 DB에 저장
     async function submitReg() {
       const agreed   = document.getElementById("regAgree").checked;
@@ -908,6 +944,10 @@
       if (nr) nr.addEventListener("click", openRef);
       if (rc) rc.addEventListener("click", closeRef);
       if (rcp) rcp.addEventListener("click", copyRef);
+      // 포인트 내역 (상단 History 메뉴)
+      const nl = document.getElementById("navLog"), lc = document.getElementById("logClose");
+      if (nl) nl.addEventListener("click", openLog);
+      if (lc) lc.addEventListener("click", closeLog);
     }
 
     // ===== 온보딩 (신규 유저 최초 1회 단계별 설정) =====
