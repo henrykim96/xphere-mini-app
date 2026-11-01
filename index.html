@@ -968,7 +968,7 @@
     // ▼ 링크는 나중에 실제 Xphere 계정 주소로 교체하세요
     const OB_LINKS = {
       x:        "https://x.com/Xphere_official",                               // X 프로필
-      post:     "https://x.com/Xphere_official/status/2079884064547611029?s=20", // 리트윗할 트윗
+      post:     "https://x.com/Xphere_official/status/2116699489126015118",     // 리트윗할 트윗 (서버 Secret X_CAMPAIGN_TWEET_ID 와 같은 트윗이어야 함)
       telegram: "https://t.me/Xphere_official",                               // 텔레그램
       discord:  "https://discord.com/invite/xphere",                          // 디스코드
     };
@@ -995,7 +995,7 @@
       // 09 XP Rewards
       "👀 XP token rewards are up for grabs for top participants!\n\nJoin the XPHERE Mini App, complete missions, and earn points throughout November.\n\nEvery mission is another chance to climb higher. ⛏️⚡️\n\nGet involved 👇\n@Xphere_official #XPHERE",    ];
     const obShareText = OB_SHARE_TEXTS[Math.floor(Math.random() * OB_SHARE_TEXTS.length)];
-    OB_LINKS.share = "https://x.com/intent/post?text=" + encodeURIComponent(obShareText) + "&url=" + encodeURIComponent(OB_LINKS.x);   // 링크를 이벤트 트윗으로 바꾸려면 OB_LINKS.x → OB_LINKS.post
+    OB_LINKS.share = "https://x.com/intent/post?text=" + encodeURIComponent(obShareText) + "&url=" + encodeURIComponent(OB_LINKS.post);   // 공유할 때 붙는 링크 = 이벤트 홍보 트윗 (프로필로 바꾸려면 OB_LINKS.post → OB_LINKS.x)
     const OB_STEPS = [
       { title: "Welcome to Xphere Airdrop", sub: "Complete a quick setup to join the airdrop.",  type: "agree" },
       { title: "Connect your X account",    sub: "Enter your X (Twitter) handle to continue.",    type: "xconnect", url: OB_LINKS.x },
