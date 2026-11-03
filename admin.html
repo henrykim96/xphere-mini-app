@@ -55,9 +55,11 @@
       border: 1px solid var(--line2); color: var(--text); font-size: 13px; min-width: 240px; }
     .toolbar input[type=text]:focus { outline: none; border-color: var(--red); }
     .toolbar label { color: var(--text); font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
-    .toolbar button { background: rgba(255,255,255,0.06); border: 1px solid var(--line2); color: var(--text);
+    .toolbar button, .more { background: rgba(255,255,255,0.06); border: 1px solid var(--line2); color: var(--text);
       border-radius: 8px; padding: 8px 14px; cursor: pointer; font-size: 13px; }
+    .toolbar button:disabled { opacity: .5; cursor: default; }
     .hidden { display: none; }
+    .loaded { color: var(--muted); font-size: 12px; }
 
     /* 행을 눌렀을 때 펼쳐지는 포인트 내역 */
     td.detail { background: rgba(0,0,0,0.25); white-space: normal; padding: 12px 18px 16px; }
@@ -93,7 +95,11 @@
           <label><input type="checkbox" id="walletOnly" /> Wallet registered only</label>
           <div style="color:var(--muted);font-size:13px" id="count"></div>
         </div>
-        <button id="csvBtn">Download CSV</button>
+        <div>
+          <span class="loaded" id="loadedAt"></span>
+          <button id="refreshBtn">Refresh</button>
+          <button id="csvBtn">Download CSV</button>
+        </div>
       </div>
 
       <div class="tablewrap">
@@ -104,6 +110,7 @@
           <tbody id="rows"></tbody>
         </table>
       </div>
+      <div style="text-align:center;margin-top:14px"><button class="more hidden" id="moreBtn">Show more</button></div>
     </div>
 
   </div>
@@ -113,8 +120,10 @@
     const FUNCTION_URL = "https://ltodfynoaozgcaobwcgo.supabase.co/functions/v1/dynamic-handler";
     const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx0b2RmeW5vYW96Z2Nhb2J3Y2dvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5OTUyNDYsImV4cCI6MjA5OTU3MTI0Nn0.Fz5b50r2OIhkg7quvndelfFwjq2tvWnVtAuweHdRsBA";
 
+    const SHOW_STEP = 200;   // 표에는 처음 이만큼만 그리고, Show more 를 누를 때마다 이만큼씩 더 그림 (수만 명을 한꺼번에 그리면 브라우저가 느려짐)
     let USERS = [];   // 서버가 준 전체 유저 (포인트 순). 각 유저에 rank(전체 순위)·wrank(지갑 등록자 중 순위) 를 붙임
-    let VIEW = [];    // 지금 화면에 보이는(필터·검색 적용된) 유저
+    let VIEW = [];    // 지금 필터·검색이 적용된 전체 결과 (CSV 는 이걸 그대로 내보냄)
+    let SHOWN = SHOW_STEP;   // 지금 표에 그려진 줄 수
     let PW = "";      // 로그인에 쓴 비밀번호 (유저별 내역 조회에 다시 사용, 이 탭 메모리에만 있음)
 
     function callAdmin(body) {
@@ -125,20 +134,38 @@
       }).then(function (r) { return r.json(); });
     }
 
+    // 서버에서 전체 유저를 받아 순위를 붙임. force=true 면 서버가 보관해 둔(60초) 결과를 무시하고 새로 읽음
+    async function loadUsers(force) {
+      const out = await callAdmin({ action: "admin_leaderboard", force: !!force });
+      if (!out.ok) return out;
+      USERS = out.users || [];
+      // ★ 순위: 서버가 '포인트 높은 순 → 먼저 가입한 순 → 텔레그램 ID 작은 순'으로 이미 정렬해서 줌
+      //   rank = 전체 순위, wrank = 지갑을 등록한 유저들 사이의 순위 (에어드랍 지급 대상 순위)
+      let w = 0;
+      USERS.forEach(function (u, i) {
+        u.rank = i + 1; u.wrank = u.wallet ? ++w : "";
+        u._s = [u.name, u.x_handle, u.wallet, u.telegram_id].map(function (v) { return v == null ? "" : String(v); }).join(" ").toLowerCase();   // 검색용 (미리 만들어 둠)
+      });
+      document.getElementById("loadedAt").textContent = "Loaded " + new Date(out.at || Date.now()).toLocaleTimeString() + (out.cached ? " (cached)" : "");
+      return out;
+    }
+
     async function login() {
       const err = document.getElementById("err");
       err.textContent = "";
       PW = document.getElementById("pw").value;
       try {
-        const out = await callAdmin({ action: "admin_leaderboard" });
+        const out = await loadUsers(false);
         if (!out.ok) { err.textContent = "Wrong password."; return; }
-        USERS = out.users || [];
-        // ★ 순위: 서버가 '포인트 높은 순 → 먼저 가입한 순 → 텔레그램 ID 작은 순'으로 이미 정렬해서 줌
-        //   rank = 전체 순위, wrank = 지갑을 등록한 유저들 사이의 순위 (에어드랍 지급 대상 순위)
-        let w = 0;
-        USERS.forEach(function (u, i) { u.rank = i + 1; u.wrank = u.wallet ? ++w : ""; });
         showDashboard();
       } catch (e) { err.textContent = "Network error."; }
+    }
+
+    async function refresh() {
+      const btn = document.getElementById("refreshBtn");
+      btn.disabled = true; btn.textContent = "Loading...";
+      try { const out = await loadUsers(true); if (out.ok) showDashboard(); } catch (e) {}
+      btn.disabled = false; btn.textContent = "Refresh";
     }
 
     function showDashboard() {
@@ -156,20 +183,24 @@
       render();
     }
 
-    // 필터·검색을 적용해서 표를 다시 그림
-    function render() {
+    // 필터·검색을 적용하고 표를 다시 그림. keep=true 면 지금 보이는 줄 수를 유지(Show more 용)
+    function render(keep) {
+      if (!keep) SHOWN = SHOW_STEP;
       const q = document.getElementById("search").value.trim().toLowerCase();
       const only = document.getElementById("walletOnly").checked;
       VIEW = USERS.filter(function (u) {
         if (only && !u.wallet) return false;
-        if (!q) return true;
-        return [u.name, u.x_handle, u.wallet, u.telegram_id].some(function (v) { return String(v == null ? "" : v).toLowerCase().indexOf(q) !== -1; });
+        return !q || u._s.indexOf(q) !== -1;
       });
-      document.getElementById("count").textContent = VIEW.length + " / " + USERS.length + " users (sorted by points)";
+      const shown = Math.min(SHOWN, VIEW.length);
+      document.getElementById("count").textContent = "Showing " + shown.toLocaleString() + " of " + VIEW.length.toLocaleString() +
+        " (total " + USERS.length.toLocaleString() + " users, sorted by points)";
+      document.getElementById("moreBtn").classList.toggle("hidden", shown >= VIEW.length);
 
       const tbody = document.getElementById("rows");
       tbody.innerHTML = "";
-      VIEW.forEach(function (u) {
+      const frag = document.createDocumentFragment();
+      VIEW.slice(0, shown).forEach(function (u) {
         const tr = document.createElement("tr");
         tr.className = "user";
         const cells = [
@@ -184,8 +215,9 @@
           tr.appendChild(td);
         });
         tr.addEventListener("click", function () { toggleDetail(tr, u); });
-        tbody.appendChild(tr);
+        frag.appendChild(tr);
       });
+      tbody.appendChild(frag);
     }
 
     // 행을 누르면 그 유저의 포인트 내역(최근 200건)을 아래에 펼침. 다시 누르면 접힘
@@ -214,9 +246,9 @@
       });
     }
 
-    function stat(n, label) { return "<div class='stat'><div class='n'>" + n + "</div><div class='l'>" + label + "</div></div>"; }
+    function stat(n, label) { return "<div class='stat'><div class='n'>" + Number(n).toLocaleString() + "</div><div class='l'>" + label + "</div></div>"; }
 
-    // CSV 내보내기 — 지금 화면에 보이는(필터·검색 적용) 목록 그대로. 에어드랍 대상 뽑기용 (rank=전체 순위, wallet_rank=지갑 등록자 중 순위)
+    // CSV 내보내기 — 지금 필터·검색이 적용된 '전체 결과' 그대로 (표에 그려진 200줄이 아니라 전부). 에어드랍 대상 뽑기용 (rank=전체 순위, wallet_rank=지갑 등록자 중 순위)
     function csvCell(v) { return JSON.stringify(v == null ? "" : String(v)); }
     function downloadCsv() {
       const head = "rank,wallet_rank,name,points,referrals,x_handle,repost_status,wallet,registered,joined,telegram_id\n";
@@ -233,11 +265,18 @@
       a.click();
     }
 
+    // 검색은 글자를 칠 때마다 수만 줄을 다시 그리지 않도록 잠깐(250ms) 멈춘 뒤 실행
+    let searchTimer = null;
+    document.getElementById("search").addEventListener("input", function () {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(function () { render(); }, 250);
+    });
     document.getElementById("loginBtn").addEventListener("click", login);
     document.getElementById("pw").addEventListener("keydown", function (e) { if (e.key === "Enter") login(); });
     document.getElementById("csvBtn").addEventListener("click", downloadCsv);
-    document.getElementById("search").addEventListener("input", render);
-    document.getElementById("walletOnly").addEventListener("change", render);
+    document.getElementById("refreshBtn").addEventListener("click", refresh);
+    document.getElementById("walletOnly").addEventListener("change", function () { render(); });
+    document.getElementById("moreBtn").addEventListener("click", function () { SHOWN += SHOW_STEP; render(true); });
   </script>
 </body>
 </html>

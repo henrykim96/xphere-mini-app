@@ -21,6 +21,9 @@ function utcYesterday() {
   return d.toISOString().slice(0, 10);
 }
 
+// 어드민 순위 결과 잠깐 보관(60초). 2만 명 규모에서 어드민 새로고침을 연타해도 DB 를 매번 전부 읽지 않게 함.
+// (함수 실행 환경 하나 안에서만 유지되므로 정확히 60초는 아님. 'Refresh' 버튼은 force 로 무시하고 새로 읽음)
+let adminCache = { t: 0, users: [] };
 async function hmac(keyBytes, msg) {
   const key = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   return new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msg)));
@@ -137,13 +140,25 @@ Deno.serve(async (req) => {
       const pw = Deno.env.get("ADMIN_PASSWORD");
       if (!pw || body.password !== pw) return json({ ok: false, reason: "unauthorized" }, 401);
       const dbA = createClient(Deno.env.get("SUPABASE_URL"), Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"));
-      const { data } = await dbA.from("app_users")
-        .select("name, points, referrals, wallet, x_handle, x_repost_status, telegram_id, onboarded, created_at, registered_at")
-        // ★ 순위 규칙: 포인트 높은 순 → 동점이면 먼저 가입한 순 → 그래도 같으면 텔레그램 ID 작은 순(항상 같은 순서가 나오게)
-        .order("points", { ascending: false })
-        .order("created_at", { ascending: true })
-        .order("telegram_id", { ascending: true });
-      return json({ ok: true, users: data || [] });
+      if (!body.force && adminCache.users.length && Date.now() - adminCache.t < 60000) return json({ ok: true, users: adminCache.users, at: adminCache.t, cached: true });
+      // ★ Supabase 는 한 번에 최대 1000행만 줌 → 1000명씩 끊어서 끝까지 반복해 전부 가져옴 (정렬이 항상 같아서 페이지가 겹치거나 빠지지 않음)
+      const users = [];
+      const PAGE = 1000;
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await dbA.from("app_users")
+          .select("name, points, referrals, wallet, x_handle, x_repost_status, telegram_id, onboarded, created_at, registered_at")
+          // ★ 순위 규칙: 포인트 높은 순 → 동점이면 먼저 가입한 순 → 그래도 같으면 텔레그램 ID 작은 순(항상 같은 순서가 나오게)
+          .order("points", { ascending: false })
+          .order("created_at", { ascending: true })
+          .order("telegram_id", { ascending: true })
+          .range(from, from + PAGE - 1);
+        if (error) return json({ ok: false, reason: "error", detail: String(error.message || error) }, 500);
+        const rows = data || [];
+        users.push(...rows);
+        if (rows.length < PAGE) break;
+      }
+      adminCache = { t: Date.now(), users };
+      return json({ ok: true, users, at: adminCache.t });
     }
     // ===== 관리자: 특정 유저의 포인트 내역 (어드민 표에서 행을 눌렀을 때). 같은 팀 비밀번호로 보호 =====
     if (action === "admin_user_log") {
